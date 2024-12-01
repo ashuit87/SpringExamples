@@ -1,64 +1,52 @@
-data = {
+import pandas as pd
+
+# Sample data for df1 (Variables and their values)
+data1 = {
     'BANK_ID': [1, 1, 1, 1, 2, 2, 2, 2],
     'BANK_NAME': ['SBI', 'SBI', 'SBI', 'SBI', 'HDFC', 'HDFC', 'HDFC', 'HDFC'],
-    'ASOF': [23122024, 23122024, 21122024, 21122024, 23122024, 23122024, 21122024, 21122024],
+    'ASOF': ['23122024', '23122024', '21122024', '21122024', '23122024', '23122024', '21122024', '21122024'],
     'VARIABLE': ['V1', 'V2', 'V1', 'V2', 'V3', 'V4', 'V3', 'V4'],
-    'VALUE': [10, 5, 10, 5, 2, 1, 2, 1],
-    'Metric_Var_Id': ['Met1', 'Met1', 'Met2', 'Met2', 'Met3', 'Met3', 'Met4', 'Met4'],
-    'Expression': ['V1+V2', 'V1+V2', 'V1*V2', 'V1*V2', 'V3+V4', 'V3+V4', 'V3-V4', 'V3-V4']
+    'VALUE': [10, 5, 10, 5, 2, 7, 2, 7]
 }
 
-df = pd.DataFrame(data)
-def evaluate_expression_for_group(group, expression):
-    # Replace variables in the expression with corresponding 'VALUE' from the group
-    for var in group['VARIABLE'].unique():
-        expression = expression.replace(var, str(group[group['VARIABLE'] == var]['VALUE'].values[0]))
-    # Evaluate the expression
-    return eval(expression)
+df1 = pd.DataFrame(data1)
 
-def apply_evaluation(row, df):
-    # Get the group for the current row's BANK_ID, BANK_NAME, and ASOF
-    group = df[(df['BANK_ID'] == row['BANK_ID']) & 
-               (df['BANK_NAME'] == row['BANK_NAME']) & 
-               (df['ASOF'] == row['ASOF'])]
-    # Use the evaluate_expression_for_group function to calculate the value
-    return evaluate_expression_for_group(group, row['Expression'])
+# Sample data for df2 (mapping expressions to Metric_Var_Id)
+data2 = {
+    'Metric_Var_Id': ['Met1', 'Met1', 'Met2', 'Met2'],
+    'Expression': ['V1+V2', 'V1+V2', 'V3-V4', 'V3-V4'],
+    'VARIABLE': ['V1', 'V2', 'V3', 'V4']
+}
 
-grouped_df = df.groupby(['BANK_ID', 'BANK_NAME', 'ASOF'], as_index=False).agg(
-    Variables=('VARIABLE', ', '.join),        # Concatenate variables
-    Value=('VALUE', 'sum'),                   # Sum of values (change as needed)
-    Expression=('Expression', 'first')        # Keep the first expression for each group
-)
+df2 = pd.DataFrame(data2)
 
-calculated_values = []
+# Merge df1 and df2 on 'VARIABLE'
+merged_df = pd.merge(df1, df2, on='VARIABLE')
 
-for _, row in grouped_df.iterrows():
-    # Apply the evaluation function for each row and use the Expression from the original DataFrame
-    calculated_value = apply_evaluation(row, df)
-    calculated_values.append(calculated_value)
+# Create a dictionary to map Metric_Var_Id to Expressions
+metric_map = dict(zip(df2['Metric_Var_Id'], df2['Expression']))
 
-grouped_df['Calculated_Value'] = calculated_values
+# Map the Metric_Var_Id column to the corresponding Expression
+merged_df['Expression'] = merged_df['Metric_Var_Id'].map(metric_map)
 
-grouped_df
+# Create a dictionary to map VARIABLE -> VALUE
+variables_map = dict(zip(merged_df['VARIABLE'], merged_df['VALUE']))
 
-#another way
-# Function to evaluate the expressions dynamically for each group
+# Function to evaluate expressions using the variables map
 def evaluate_expression(group):
-    expression = group['Expression'].iloc[0]  # The same expression applies to all rows in a group
-    for var, value in zip(group['VARIABLE'], group['VALUE']):
-        expression = expression.replace(var, str(value))  # Replace variables with their corresponding values
-    return eval(expression)  # Dynamically evaluate the expression
+    # Get the expression for the group from the Metric_Var_Id
+    expression = group['Expression'].iloc[0]  # Since Expression is the same for all rows in a group
 
-# Group by BANK_ID, BANK_NAME, ASOF
-grouped_df = df.groupby(['BANK_ID', 'BANK_NAME', 'ASOF'])
+    # Replace the variables in the expression with their corresponding values from the variables_map
+    for var, value in variables_map.items():
+        expression = expression.replace(var, str(value))  # Replace each variable with its value
 
-# Apply the evaluation function to each group and create a new DataFrame
-result = grouped_df.apply(lambda group: pd.Series({
-    'Variables': ', '.join(group['VARIABLE']),
-    'Value': group['VALUE'].sum(),  # Can be adjusted based on the requirement
-    'Expression': group['Expression'].iloc[0],  # Assuming all rows in a group share the same expression
-    'Calculated_Value': evaluate_expression(group)
-})).reset_index()
+    # Evaluate the expression
+    calculated_value = eval(expression)
+    return pd.Series({'Metric_Var_Id': group['Metric_Var_Id'].iloc[0], 'Calculated_Value': calculated_value})
+
+# Group by BANK_ID, BANK_NAME, ASOF and apply the evaluation function
+result_with_metric = merged_df.groupby(['BANK_ID', 'BANK_NAME', 'ASOF']).apply(evaluate_expression).reset_index()
 
 # Display the result
-print(result)
+print(result_with_metric)
