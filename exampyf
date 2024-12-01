@@ -1,12 +1,12 @@
 import pandas as pd
 
-# Sample data for df1 (Variables and their values)
+# Updated df1 data
 data1 = {
     'BANK_ID': [1, 1, 1, 1, 2, 2, 2, 2],
     'BANK_NAME': ['SBI', 'SBI', 'SBI', 'SBI', 'HDFC', 'HDFC', 'HDFC', 'HDFC'],
     'ASOF': ['23122024', '23122024', '21122024', '21122024', '23122024', '23122024', '21122024', '21122024'],
     'VARIABLE': ['V1', 'V2', 'V1', 'V2', 'V3', 'V4', 'V3', 'V4'],
-    'VALUE': [10, 5, 10, 5, 2, 7, 2, 7]
+    'VALUE': [10, 5, 20, 30, 2, 7, 40, 50]
 }
 
 df1 = pd.DataFrame(data1)
@@ -29,20 +29,23 @@ metric_map = dict(zip(df2['Metric_Var_Id'], df2['Expression']))
 # Map the Metric_Var_Id column to the corresponding Expression
 merged_df['Expression'] = merged_df['Metric_Var_Id'].map(metric_map)
 
-# Create a dictionary to map VARIABLE -> VALUE
+# Create a dictionary to map VARIABLES to their corresponding values in df1
 variables_map = dict(zip(merged_df['VARIABLE'], merged_df['VALUE']))
 
-# Function to evaluate expressions using the variables map
+# Function to dynamically evaluate expressions using the variables map
 def evaluate_expression(group):
     # Get the expression for the group from the Metric_Var_Id
     expression = group['Expression'].iloc[0]  # Since Expression is the same for all rows in a group
-
+    
     # Replace the variables in the expression with their corresponding values from the variables_map
     for var, value in variables_map.items():
         expression = expression.replace(var, str(value))  # Replace each variable with its value
 
-    # Evaluate the expression
-    calculated_value = eval(expression)
+    # Dynamically evaluate the expression using eval
+    try:
+        calculated_value = eval(expression)  # Evaluate the expression
+    except Exception as e:
+        calculated_value = str(e)  # In case of error in evaluation
     return pd.Series({'Metric_Var_Id': group['Metric_Var_Id'].iloc[0], 'Calculated_Value': calculated_value})
 
 # Group by BANK_ID, BANK_NAME, ASOF and apply the evaluation function
