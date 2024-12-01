@@ -41,3 +41,24 @@ grouped_df['Calculated_Value'] = calculated_values
 
 grouped_df
 
+#another way
+# Function to evaluate the expressions dynamically for each group
+def evaluate_expression(group):
+    expression = group['Expression'].iloc[0]  # The same expression applies to all rows in a group
+    for var, value in zip(group['VARIABLE'], group['VALUE']):
+        expression = expression.replace(var, str(value))  # Replace variables with their corresponding values
+    return eval(expression)  # Dynamically evaluate the expression
+
+# Group by BANK_ID, BANK_NAME, ASOF
+grouped_df = df.groupby(['BANK_ID', 'BANK_NAME', 'ASOF'])
+
+# Apply the evaluation function to each group and create a new DataFrame
+result = grouped_df.apply(lambda group: pd.Series({
+    'Variables': ', '.join(group['VARIABLE']),
+    'Value': group['VALUE'].sum(),  # Can be adjusted based on the requirement
+    'Expression': group['Expression'].iloc[0],  # Assuming all rows in a group share the same expression
+    'Calculated_Value': evaluate_expression(group)
+})).reset_index()
+
+# Display the result
+print(result)
