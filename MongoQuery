@@ -1,0 +1,5 @@
+db.myCollection.aggregate([
+  { $match: { status: "active" } },  // Match criteria
+  { $group: { _id: null, ids: { $push: "$_id" } } }, // Group and collect _id values in an array
+  { $project: { _id: 0, ids: 1 } } // Format the output to return only the array
+]);
