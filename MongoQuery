@@ -1,28 +1,37 @@
 db.collectionB.aggregate([
-  // Step 1: Filter collection B to ensure mapDefId exists in collection A
+  // Step 1: Perform the lookup and cast mapDefId in collection A to a string
   {
     $lookup: {
-      from: "collectionA", // Target collection to join
-      localField: "context.mapDefId", // Field from collection B
-      foreignField: "mapDefId", // Field from collection A
-      as: "matched_docs" // Result array
+      from: "collectionA",
+      let: { mapDefIdStr: "$context.mapDefId" }, // Cast collectionB.mapDefId to string
+      pipeline: [
+        {
+          $addFields: { mapDefIdStr: { $toString: "$mapDefId" } } // Cast collectionA.mapDefId to string
+        },
+        {
+          $match: {
+            $expr: { $eq: ["$$mapDefIdStr", "$mapDefIdStr"] } // Match on casted mapDefId
+          }
+        }
+      ],
+      as: "matched_docs"
     }
   },
   {
     $unwind: "$matched_docs" // Flatten the matched_docs array
   },
-  // Step 2: Apply conditions to filter documents
+  // Step 2: Filter based on ruleDefId and _id
   {
     $match: {
       $expr: {
         $and: [
-          { $eq: ["$context.mapDefId", "$matched_docs.mapDefId"] }, // mapDefId matches
-          { $ne: ["$context.ruleDefId", "$matched_docs._id"] }     // ruleDefId does not match _id
+          { $ne: ["$context.ruleDefId", { $toString: "$matched_docs._id" }] }, // Compare ruleDefId as string with _id
+          { $eq: ["$context.mapDefId", "$matched_docs.mapDefIdStr"] }         // mapDefId matches
         ]
       }
     }
   },
-  // Step 3: Optionally project fields if needed
+  // Step 3: Optionally project fields
   {
     $project: {
       _id: 1,
