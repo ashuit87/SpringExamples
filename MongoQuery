@@ -31,12 +31,15 @@ db.collectionB.aggregate([
       }
     }
   },
-  // Step 3: Optionally project fields
+  // Step 3: Group to collect _id values in an array
   {
-    $project: {
-      _id: 1,
-      "context.ruleDefId": 1,
-      "context.mapDefId": 1
+    $group: {
+      _id: null,
+      ids: { $push: "$_id" } // Collect _id values into an array
     }
+  },
+  // Step 4: Project the result to return the array directly
+  {
+    $project: { _id: 0, ids: 1 }
   }
 ]);
