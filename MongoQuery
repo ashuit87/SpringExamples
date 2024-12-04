@@ -1,5 +1,32 @@
-db.myCollection.aggregate([
-  { $match: { status: "active" } },  // Match criteria
-  { $group: { _id: null, ids: { $push: "$_id" } } }, // Group and collect _id values in an array
-  { $project: { _id: 0, ids: 1 } } // Format the output to return only the array
+db.collectionB.aggregate([
+    {
+        $lookup: {
+            from: "collectionA",
+            pipeline: [
+                {
+                    $match: {
+                        $expr: {
+                            $and: [
+                                { $eq: ["$mapDefId", "$context.mapDefId"] }, // Directly match `mapDefId`
+                                { $eq: ["$id", "$context.id"] }             // Directly match `id`
+                            ]
+                        }
+                    }
+                }
+            ],
+            as: "matchingDocs"
+        }
+    },
+    {
+        $match: { matchingDocs: { $size: 0 } } // Filter for no matches
+    },
+    {
+        $group: {
+            _id: null,
+            bidArray: { $push: "$bid" } // Collect all `bid` values into an array
+        }
+    },
+    {
+        $project: { _id: 0, bidArray: 1 } // Output only the array
+    }
 ]);
