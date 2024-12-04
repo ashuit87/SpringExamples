@@ -1,45 +1,37 @@
-db.collectionB.aggregate([
-  // Step 1: Perform the lookup and cast mapDefId in collection A to a string
+// Step 1: Get the array of _id values
+const idsToDelete = db.collectionB.aggregate([
   {
     $lookup: {
       from: "collectionA",
-      let: { mapDefIdStr: "$context.mapDefId" }, // Cast collectionB.mapDefId to string
+      let: { mapDefIdStr: "$context.mapDefId" },
       pipeline: [
-        {
-          $addFields: { mapDefIdStr: { $toString: "$mapDefId" } } // Cast collectionA.mapDefId to string
-        },
-        {
-          $match: {
-            $expr: { $eq: ["$$mapDefIdStr", "$mapDefIdStr"] } // Match on casted mapDefId
-          }
-        }
+        { $addFields: { mapDefIdStr: { $toString: "$mapDefId" } } },
+        { $match: { $expr: { $eq: ["$$mapDefIdStr", "$mapDefIdStr"] } } }
       ],
       as: "matched_docs"
     }
   },
-  {
-    $unwind: "$matched_docs" // Flatten the matched_docs array
-  },
-  // Step 2: Filter based on ruleDefId and _id
+  { $unwind: "$matched_docs" },
   {
     $match: {
       $expr: {
         $and: [
-          { $ne: ["$context.ruleDefId", { $toString: "$matched_docs._id" }] }, // Compare ruleDefId as string with _id
-          { $eq: ["$context.mapDefId", "$matched_docs.mapDefIdStr"] }         // mapDefId matches
+          { $ne: ["$context.ruleDefId", { $toString: "$matched_docs._id" }] },
+          { $eq: ["$context.mapDefId", "$matched_docs.mapDefIdStr"] }
         ]
       }
     }
   },
-  // Step 3: Group to collect _id values in an array
   {
     $group: {
       _id: null,
-      ids: { $push: "$_id" } // Collect _id values into an array
+      ids: { $push: "$_id" }
     }
   },
-  // Step 4: Project the result to return the array directly
-  {
-    $project: { _id: 0, ids: 1 }
-  }
-]);
+  { $project: { _id: 0, ids: 1 } }
+]).toArray()[0].ids;
+
+// Step 2: Delete documents using the ids
+db.collectionB.deleteMany({
+  _id: { $in: idsToDelete }
+});
