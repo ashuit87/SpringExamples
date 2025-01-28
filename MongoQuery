@@ -1,37 +1,86 @@
-// Step 1: Get the array of _id values
-const idsToDelete = db.collectionB.aggregate([
+db.collection.aggregate([
+  // Step 1: Extract groupAttributes and selectAttributes
   {
-    $lookup: {
-      from: "collectionA",
-      let: { mapDefIdStr: "$context.mapDefId" },
-      pipeline: [
-        { $addFields: { mapDefIdStr: { $toString: "$mapDefId" } } },
-        { $match: { $expr: { $eq: ["$$mapDefIdStr", "$mapDefIdStr"] } } }
-      ],
-      as: "matched_docs"
-    }
-  },
-  { $unwind: "$matched_docs" },
-  {
-    $match: {
-      $expr: {
-        $and: [
-          { $ne: ["$context.ruleDefId", { $toString: "$matched_docs._id" }] },
-          { $eq: ["$context.mapDefId", "$matched_docs.mapDefIdStr"] }
-        ]
+    $project: {
+      groupAttributes: {
+        $filter: {
+          input: "$delta.input",
+          as: "item",
+          cond: {
+            $or: [
+              { $eq: ["$$item.name", "line1"] },
+              { $eq: ["$$item.name", "line2"] }
+            ]
+          }
+        }
+      },
+      selectAttributes: {
+        $filter: {
+          input: "$delta.input",
+          as: "item",
+          cond: {
+            $or: [
+              { $eq: ["$$item.name", "cdsid"] },
+              { $eq: ["$$item.name", "mpsid"] }
+            ]
+          }
+        }
       }
     }
   },
+  // Step 2: Unwind groupAttributes to split semicolon-separated values
   {
-    $group: {
-      _id: null,
-      ids: { $push: "$_id" }
+    $unwind: "$groupAttributes"
+  },
+  {
+    $set: {
+      groupValues: { $split: ["$groupAttributes.value", ";"] }
     }
   },
-  { $project: { _id: 0, ids: 1 } }
-]).toArray()[0].ids;
-
-// Step 2: Delete documents using the ids
-db.collectionB.deleteMany({
-  _id: { $in: idsToDelete }
-});
+  {
+    $unwind: "$groupValues"
+  },
+  // Step 3: Group by selectAttributes and collect distinct groupValues
+  {
+    $group: {
+      _id: {
+        selectAttributes: "$selectAttributes",
+        groupName: "$groupAttributes.name"
+      },
+      distinctGroupValues: { $addToSet: "$groupValues" }
+    }
+  },
+  // Step 4: Regroup by selectAttributes to combine groupValues from all groupAttributes
+  {
+    $group: {
+      _id: "$_id.selectAttributes",
+      allGroupValues: { $push: "$distinctGroupValues" }
+    }
+  },
+  // Step 5: Flatten allGroupValues into a single array
+  {
+    $set: {
+      flattenedGroupValues: {
+        $reduce: {
+          input: "$allGroupValues",
+          initialValue: [],
+          in: { $setUnion: ["$$value", "$$this"] }
+        }
+      }
+    }
+  },
+  // Step 6: Filter where the total unique groupValues exceed 3
+  {
+    $match: {
+      $expr: { $gt: [{ $size: "$flattenedGroupValues" }, 3] }
+    }
+  },
+  // Step 7: Format the output
+  {
+    $project: {
+      selectAttributes: "$_id",
+      flattenedGroupValues: 1,
+      _id: 0
+    }
+  }
+]);
