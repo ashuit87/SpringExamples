@@ -1,86 +1,85 @@
-db.collection.aggregate([
-  // Step 1: Extract groupAttributes and selectAttributes
-  {
-    $project: {
-      groupAttributes: {
-        $filter: {
-          input: "$delta.input",
-          as: "item",
-          cond: {
-            $or: [
-              { $eq: ["$$item.name", "line1"] },
-              { $eq: ["$$item.name", "line2"] }
-            ]
-          }
+import com.mongodb.client.MongoClients;
+import com.mongodb.client.MongoCollection;
+import com.mongodb.client.MongoDatabase;
+import com.mongodb.client.MongoClient;
+import com.mongodb.client.AggregateIterable;
+import org.bson.Document;
+import org.bson.conversions.Bson;
+
+import java.util.Arrays;
+
+public class MongoAggregationExample {
+    public static void main(String[] args) {
+        // Connect to the MongoDB instance
+        try (MongoClient mongoClient = MongoClients.create("mongodb://localhost:27017")) {
+            // Connect to the database and collection
+            MongoDatabase database = mongoClient.getDatabase("yourDatabaseName");
+            MongoCollection<Document> collection = database.getCollection("yourCollectionName");
+
+            // Define the aggregation pipeline
+            AggregateIterable<Document> result = collection.aggregate(Arrays.asList(
+                // Step 1: Extract groupAttributes and selectAttributes
+                new Document("$project", new Document()
+                    .append("groupAttributes", new Document("$filter", new Document()
+                        .append("input", "$delta.input")
+                        .append("as", "item")
+                        .append("cond", new Document("$or", Arrays.asList(
+                            new Document("$eq", Arrays.asList("$$item.name", "line1")),
+                            new Document("$eq", Arrays.asList("$$item.name", "line2"))
+                        )))
+                    ))
+                    .append("selectAttributes", new Document("$filter", new Document()
+                        .append("input", "$delta.input")
+                        .append("as", "item")
+                        .append("cond", new Document("$or", Arrays.asList(
+                            new Document("$eq", Arrays.asList("$$item.name", "cdsid")),
+                            new Document("$eq", Arrays.asList("$$item.name", "mpsid"))
+                        )))
+                    ))
+                ),
+
+                // Step 2: Unwind groupAttributes to split semicolon-separated values
+                new Document("$unwind", "$groupAttributes"),
+                new Document("$set", new Document("groupValues", new Document("$split", Arrays.asList("$groupAttributes.value", ";")))),
+                new Document("$unwind", "$groupValues"),
+
+                // Step 3: Group by selectAttributes and collect distinct groupValues
+                new Document("$group", new Document()
+                    .append("_id", new Document()
+                        .append("selectAttributes", "$selectAttributes")
+                        .append("groupName", "$groupAttributes.name")
+                    )
+                    .append("distinctGroupValues", new Document("$addToSet", "$groupValues"))
+                ),
+
+                // Step 4: Regroup by selectAttributes to combine groupValues from all groupAttributes
+                new Document("$group", new Document()
+                    .append("_id", "$_id.selectAttributes")
+                    .append("allGroupValues", new Document("$push", "$distinctGroupValues"))
+                ),
+
+                // Step 5: Flatten allGroupValues into a single array
+                new Document("$set", new Document("flattenedGroupValues", new Document("$reduce", new Document()
+                    .append("input", "$allGroupValues")
+                    .append("initialValue", Arrays.asList())
+                    .append("in", new Document("$setUnion", Arrays.asList("$$value", "$$this")))
+                ))),
+
+                // Step 6: Filter where the total unique groupValues exceed 3
+                new Document("$match", new Document("$expr", new Document("$gt", Arrays.asList(new Document("$size", "$flattenedGroupValues"), 3)))),
+
+                // Step 7: Format the output
+                new Document("$project", new Document()
+                    .append("selectAttributes", "$_id")
+                    .append("flattenedGroupValues", 1)
+                    .append("_id", 0)
+                )
+            ));
+
+            // Print the results
+            for (Document doc : result) {
+                System.out.println(doc.toJson());
+            }
         }
-      },
-      selectAttributes: {
-        $filter: {
-          input: "$delta.input",
-          as: "item",
-          cond: {
-            $or: [
-              { $eq: ["$$item.name", "cdsid"] },
-              { $eq: ["$$item.name", "mpsid"] }
-            ]
-          }
-        }
-      }
     }
-  },
-  // Step 2: Unwind groupAttributes to split semicolon-separated values
-  {
-    $unwind: "$groupAttributes"
-  },
-  {
-    $set: {
-      groupValues: { $split: ["$groupAttributes.value", ";"] }
-    }
-  },
-  {
-    $unwind: "$groupValues"
-  },
-  // Step 3: Group by selectAttributes and collect distinct groupValues
-  {
-    $group: {
-      _id: {
-        selectAttributes: "$selectAttributes",
-        groupName: "$groupAttributes.name"
-      },
-      distinctGroupValues: { $addToSet: "$groupValues" }
-    }
-  },
-  // Step 4: Regroup by selectAttributes to combine groupValues from all groupAttributes
-  {
-    $group: {
-      _id: "$_id.selectAttributes",
-      allGroupValues: { $push: "$distinctGroupValues" }
-    }
-  },
-  // Step 5: Flatten allGroupValues into a single array
-  {
-    $set: {
-      flattenedGroupValues: {
-        $reduce: {
-          input: "$allGroupValues",
-          initialValue: [],
-          in: { $setUnion: ["$$value", "$$this"] }
-        }
-      }
-    }
-  },
-  // Step 6: Filter where the total unique groupValues exceed 3
-  {
-    $match: {
-      $expr: { $gt: [{ $size: "$flattenedGroupValues" }, 3] }
-    }
-  },
-  // Step 7: Format the output
-  {
-    $project: {
-      selectAttributes: "$_id",
-      flattenedGroupValues: 1,
-      _id: 0
-    }
-  }
-]);
+}
