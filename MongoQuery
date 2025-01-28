@@ -18,10 +18,10 @@ public class MongoAggregationExample {
 
             // Define the aggregation pipeline
             AggregateIterable<Document> result = collection.aggregate(Arrays.asList(
-                // Step 1: Extract groupAttributes and selectAttributes
+                // Step 1: Extract groupAttributes (line1, line2) and selectAttributes (cdsid, mpsid)
                 new Document("$project", new Document()
                     .append("groupAttributes", new Document("$filter", new Document()
-                        .append("input", "$delta.input")
+                        .append("input", "$input")
                         .append("as", "item")
                         .append("cond", new Document("$or", Arrays.asList(
                             new Document("$eq", Arrays.asList("$$item.name", "line1")),
@@ -29,7 +29,7 @@ public class MongoAggregationExample {
                         )))
                     ))
                     .append("selectAttributes", new Document("$filter", new Document()
-                        .append("input", "$delta.input")
+                        .append("input", "$input")
                         .append("as", "item")
                         .append("cond", new Document("$or", Arrays.asList(
                             new Document("$eq", Arrays.asList("$$item.name", "cdsid")),
