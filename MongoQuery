@@ -16,8 +16,7 @@ MongoCollection<Document> collection2 = database.getCollection("collection2"); /
 List<String> selectionAttributes = Arrays.asList("cdsid", "mpsid"); // Example dynamic attributes
 List<String> groupingAttributes = Arrays.asList("line1", "line2"); // Example dynamic grouping attributes
 
-// Define seq value, mapDefId, and masterId for matching
-String seqValue = "31923"; // Replace with your dynamic seq value
+// Define mapDefId and masterId for matching
 String mapDefId = "99"; // Replace with your dynamic mapDefId
 String masterId = "12"; // Replace with your dynamic masterId
 
@@ -42,9 +41,8 @@ groupFields.append("lineValues", lineValuesGroup);
 
 // Aggregation pipeline for both collections with $lookup for the join
 List<Bson> pipeline = Arrays.asList(
-    // Match documents based on seq, mapDefId, and masterId in the first collection
+    // Match documents based on mapDefId and masterId in the first collection (no seq filter here)
     Aggregates.match(Filters.and(
-        Filters.eq("seq", seqValue),
         Filters.eq("mapDefId", mapDefId),
         Filters.eq("masterId", masterId)  // Only in Collection 1
     )),
@@ -52,8 +50,8 @@ List<Bson> pipeline = Arrays.asList(
     // Perform $lookup to join the second collection based on seq field
     Aggregates.lookup(
         "collection2", // Name of the second collection
-        "seq", // Field from the first collection
-        "seq", // Field from the second collection
+        "seq", // Field from the first collection (to match with Collection 2)
+        "seq", // Field from the second collection (to match with Collection 1)
         "joined_docs" // Alias for the joined data
     ),
     
