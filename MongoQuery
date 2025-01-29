@@ -1,85 +1,62 @@
-import com.mongodb.client.MongoClients;
 import com.mongodb.client.MongoCollection;
-import com.mongodb.client.MongoDatabase;
-import com.mongodb.client.MongoClient;
-import com.mongodb.client.AggregateIterable;
+import com.mongodb.client.model.Aggregates;
+import com.mongodb.client.model.Filters;
 import org.bson.Document;
 import org.bson.conversions.Bson;
 
 import java.util.Arrays;
+import java.util.List;
 
-public class MongoAggregationExample {
-    public static void main(String[] args) {
-        // Connect to the MongoDB instance
-        try (MongoClient mongoClient = MongoClients.create("mongodb://localhost:27017")) {
-            // Connect to the database and collection
-            MongoDatabase database = mongoClient.getDatabase("yourDatabaseName");
-            MongoCollection<Document> collection = database.getCollection("yourCollectionName");
+MongoCollection<Document> collection = database.getCollection("your_collection_name");
 
-            // Define the aggregation pipeline
-            AggregateIterable<Document> result = collection.aggregate(Arrays.asList(
-                // Step 1: Extract groupAttributes (line1, line2) and selectAttributes (cdsid, mpsid)
-                new Document("$project", new Document()
-                    .append("groupAttributes", new Document("$filter", new Document()
-                        .append("input", "$input")
-                        .append("as", "item")
-                        .append("cond", new Document("$or", Arrays.asList(
-                            new Document("$eq", Arrays.asList("$$item.name", "line1")),
-                            new Document("$eq", Arrays.asList("$$item.name", "line2"))
-                        )))
-                    ))
-                    .append("selectAttributes", new Document("$filter", new Document()
-                        .append("input", "$input")
-                        .append("as", "item")
-                        .append("cond", new Document("$or", Arrays.asList(
-                            new Document("$eq", Arrays.asList("$$item.name", "cdsid")),
-                            new Document("$eq", Arrays.asList("$$item.name", "mpsid"))
-                        )))
-                    ))
-                ),
+// Dynamic list of selection attributes (like cdsid, mpsid)
+List<String> selectionAttributes = Arrays.asList("cdsid", "mpsid"); // Replace with dynamic list
 
-                // Step 2: Unwind groupAttributes to split semicolon-separated values
-                new Document("$unwind", "$groupAttributes"),
-                new Document("$set", new Document("groupValues", new Document("$split", Arrays.asList("$groupAttributes.value", ";")))),
-                new Document("$unwind", "$groupValues"),
+// Dynamic list of grouping attributes (like line1, line2)
+List<String> groupingAttributes = Arrays.asList("line1", "line2"); // Replace with dynamic list
 
-                // Step 3: Group by selectAttributes and collect distinct groupValues
-                new Document("$group", new Document()
-                    .append("_id", new Document()
-                        .append("selectAttributes", "$selectAttributes")
-                        .append("groupName", "$groupAttributes.name")
-                    )
-                    .append("distinctGroupValues", new Document("$addToSet", "$groupValues"))
-                ),
+// Create the aggregation pipeline
+List<Bson> pipeline = Arrays.asList(
+    // Unwind the delta.input array
+    Aggregates.unwind("$delta.input"),
+    
+    // Match only the relevant selection attributes (cdsid, mpsid)
+    Aggregates.match(Filters.in("delta.input.name", selectionAttributes)),
+    
+    // Group by the combination of selection attributes (cdsid, mpsid) and collect the line1, line2 values
+    Aggregates.group(
+        new Document("cdsid", new Document("$first", 
+            new Document("$cond", Arrays.asList(
+                new Document("$eq", Arrays.asList("$delta.input.name", "cdsid")), 
+                "$delta.input.value", null))))
+        ).append("mpsid", new Document("$first", 
+            new Document("$cond", Arrays.asList(
+                new Document("$eq", Arrays.asList("$delta.input.name", "mpsid")), 
+                "$delta.input.value", null)))),
+        
+        // Dynamically collect line1, line2 values into lineValues array
+        new Document("lineValues", new Document("$push", 
+            new Document("$cond", Arrays.asList(
+                new Document("$in", Arrays.asList("$delta.input.name", groupingAttributes)),
+                new Document("$split", Arrays.asList("$delta.input.value", ";")),
+                Arrays.asList()))))),
 
-                // Step 4: Regroup by selectAttributes to combine groupValues from all groupAttributes
-                new Document("$group", new Document()
-                    .append("_id", "$_id.selectAttributes")
-                    .append("allGroupValues", new Document("$push", "$distinctGroupValues"))
-                ),
+    // Project to get the union of line1 and line2 values, ensuring unique values
+    Aggregates.project(new Document("cdsid", "$_id.cdsid")
+        .append("mpsid", "$_id.mpsid")
+        .append("lineValues", new Document("$reduce", new Document("input", "$lineValues")
+            .append("initialValue", Arrays.asList())
+            .append("in", new Document("$setUnion", Arrays.asList("$$value", "$$this")))))),
 
-                // Step 5: Flatten allGroupValues into a single array
-                new Document("$set", new Document("flattenedGroupValues", new Document("$reduce", new Document()
-                    .append("input", "$allGroupValues")
-                    .append("initialValue", Arrays.asList())
-                    .append("in", new Document("$setUnion", Arrays.asList("$$value", "$$this")))
-                ))),
+    // Match only those records where the number of distinct lineValues > 3
+    Aggregates.match(Filters.expr(new Document("$gt", Arrays.asList(
+        new Document("$size", "$lineValues"), 3))))
+);
 
-                // Step 6: Filter where the total unique groupValues exceed 3
-                new Document("$match", new Document("$expr", new Document("$gt", Arrays.asList(new Document("$size", "$flattenedGroupValues"), 3)))),
+// Execute the aggregation query
+AggregateIterable<Document> result = collection.aggregate(pipeline);
 
-                // Step 7: Format the output
-                new Document("$project", new Document()
-                    .append("selectAttributes", "$_id")
-                    .append("flattenedGroupValues", 1)
-                    .append("_id", 0)
-                )
-            ));
-
-            // Print the results
-            for (Document doc : result) {
-                System.out.println(doc.toJson());
-            }
-        }
-    }
+// Iterate over the result and process documents
+for (Document doc : result) {
+    System.out.println(doc.toJson());
 }
