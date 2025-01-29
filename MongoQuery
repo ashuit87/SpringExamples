@@ -6,18 +6,39 @@ import org.bson.conversions.Bson;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 MongoCollection<Document> collection1 = database.getCollection("collection1"); // First collection
 MongoCollection<Document> collection2 = database.getCollection("collection2"); // Second collection
 
 // Dynamic selection attributes and grouping attributes
-List<String> selectionAttributes = Arrays.asList("cdsid", "mpsid");
-List<String> groupingAttributes = Arrays.asList("line1", "line2");
+List<String> selectionAttributes = Arrays.asList("cdsid", "mpsid"); // Example dynamic attributes
+List<String> groupingAttributes = Arrays.asList("line1", "line2"); // Example dynamic grouping attributes
 
 // Define seq value, mapDefId, and masterId for matching
 String seqValue = "31923"; // Replace with your dynamic seq value
 String mapDefId = "99"; // Replace with your dynamic mapDefId
 String masterId = "12"; // Replace with your dynamic masterId
+
+// Dynamically create the group by stage for selection attributes
+Document groupFields = new Document();
+for (String selectionAttribute : selectionAttributes) {
+    groupFields.append(selectionAttribute, 
+        new Document("$first", new Document("$cond", Arrays.asList(
+            new Document("$eq", Arrays.asList("$delta.input.name", selectionAttribute)), 
+            "$delta.input.value", null))));
+}
+
+// Dynamically collect distinct line values
+Document lineValuesGroup = new Document("lineValues", 
+    new Document("$push", new Document("$cond", Arrays.asList(
+        new Document("$in", Arrays.asList("$delta.input.name", groupingAttributes)),
+        new Document("$split", Arrays.asList("$delta.input.value", ";")),
+        Arrays.asList())))));
+
+// Add the line values collection to the group fields
+groupFields.append("lineValues", lineValuesGroup);
 
 // Aggregation pipeline for both collections with $lookup for the join
 List<Bson> pipeline = Arrays.asList(
@@ -42,30 +63,13 @@ List<Bson> pipeline = Arrays.asList(
     // Match the selection attributes (cdsid, mpsid) in both collections
     Aggregates.match(Filters.in("delta.input.name", selectionAttributes)),
     
-    // Group by selection attributes (cdsid, mpsid) and collect distinct line values
-    Aggregates.group(
-        new Document("cdsid", new Document("$first", 
-            new Document("$cond", Arrays.asList(
-                new Document("$eq", Arrays.asList("$delta.input.name", "cdsid")), 
-                "$delta.input.value", null))))
-        ).append("mpsid", new Document("$first", 
-            new Document("$cond", Arrays.asList(
-                new Document("$eq", Arrays.asList("$delta.input.name", "mpsid")), 
-                "$delta.input.value", null)))),
-        
-        new Document("lineValues", new Document("$push", 
-            new Document("$cond", Arrays.asList(
-                new Document("$in", Arrays.asList("$delta.input.name", groupingAttributes)),
-                new Document("$split", Arrays.asList("$delta.input.value", ";")),
-                Arrays.asList())))))
-    ),
+    // Group by selection attributes dynamically and collect distinct line values
+    Aggregates.group(groupFields),
     
     // Project to get the union of line1 and line2 values, ensuring unique values
-    Aggregates.project(new Document("cdsid", "$_id.cdsid")
-        .append("mpsid", "$_id.mpsid")
-        .append("lineValues", new Document("$reduce", new Document("input", "$lineValues")
-            .append("initialValue", Arrays.asList())
-            .append("in", new Document("$setUnion", Arrays.asList("$$value", "$$this")))))),
+    Aggregates.project(new Document("lineValues", new Document("$reduce", new Document("input", "$lineValues")
+        .append("initialValue", Arrays.asList())
+        .append("in", new Document("$setUnion", Arrays.asList("$$value", "$$this")))))),
 
     // Match only those records where the number of distinct lineValues > 3
     Aggregates.match(Filters.expr(new Document("$gt", Arrays.asList(
