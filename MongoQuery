@@ -7,23 +7,42 @@ import org.bson.conversions.Bson;
 import java.util.Arrays;
 import java.util.List;
 
-MongoCollection<Document> collection = database.getCollection("your_collection_name");
+MongoCollection<Document> collection1 = database.getCollection("collection1"); // First collection
+MongoCollection<Document> collection2 = database.getCollection("collection2"); // Second collection
 
-// Dynamic list of selection attributes (like cdsid, mpsid)
-List<String> selectionAttributes = Arrays.asList("cdsid", "mpsid"); // Replace with dynamic list
+// Dynamic selection attributes and grouping attributes
+List<String> selectionAttributes = Arrays.asList("cdsid", "mpsid");
+List<String> groupingAttributes = Arrays.asList("line1", "line2");
 
-// Dynamic list of grouping attributes (like line1, line2)
-List<String> groupingAttributes = Arrays.asList("line1", "line2"); // Replace with dynamic list
+// Define seq value, mapDefId, and masterId for matching
+String seqValue = "31923"; // Replace with your dynamic seq value
+String mapDefId = "99"; // Replace with your dynamic mapDefId
+String masterId = "12"; // Replace with your dynamic masterId
 
-// Create the aggregation pipeline
+// Aggregation pipeline for both collections with $lookup for the join
 List<Bson> pipeline = Arrays.asList(
-    // Unwind the delta.input array
-    Aggregates.unwind("$delta.input"),
+    // Match documents based on seq, mapDefId, and masterId in the first collection
+    Aggregates.match(Filters.and(
+        Filters.eq("seq", seqValue),
+        Filters.eq("mapDefId", mapDefId),
+        Filters.eq("masterId", masterId)  // Only in Collection 1
+    )),
     
-    // Match only the relevant selection attributes (cdsid, mpsid)
+    // Perform $lookup to join the second collection based on seq field
+    Aggregates.lookup(
+        "collection2", // Name of the second collection
+        "seq", // Field from the first collection
+        "seq", // Field from the second collection
+        "joined_docs" // Alias for the joined data
+    ),
+    
+    // Unwind the joined documents from the second collection
+    Aggregates.unwind("$joined_docs", true),
+    
+    // Match the selection attributes (cdsid, mpsid) in both collections
     Aggregates.match(Filters.in("delta.input.name", selectionAttributes)),
     
-    // Group by the combination of selection attributes (cdsid, mpsid) and collect the line1, line2 values
+    // Group by selection attributes (cdsid, mpsid) and collect distinct line values
     Aggregates.group(
         new Document("cdsid", new Document("$first", 
             new Document("$cond", Arrays.asList(
@@ -34,13 +53,13 @@ List<Bson> pipeline = Arrays.asList(
                 new Document("$eq", Arrays.asList("$delta.input.name", "mpsid")), 
                 "$delta.input.value", null)))),
         
-        // Dynamically collect line1, line2 values into lineValues array
         new Document("lineValues", new Document("$push", 
             new Document("$cond", Arrays.asList(
                 new Document("$in", Arrays.asList("$delta.input.name", groupingAttributes)),
                 new Document("$split", Arrays.asList("$delta.input.value", ";")),
-                Arrays.asList()))))),
-
+                Arrays.asList())))))
+    ),
+    
     // Project to get the union of line1 and line2 values, ensuring unique values
     Aggregates.project(new Document("cdsid", "$_id.cdsid")
         .append("mpsid", "$_id.mpsid")
@@ -54,7 +73,7 @@ List<Bson> pipeline = Arrays.asList(
 );
 
 // Execute the aggregation query
-AggregateIterable<Document> result = collection.aggregate(pipeline);
+AggregateIterable<Document> result = collection1.aggregate(pipeline);
 
 // Iterate over the result and process documents
 for (Document doc : result) {
