@@ -1,88 +1,35 @@
-import com.mongodb.client.*;
-import com.mongodb.client.model.*;
-import org.bson.Document;
-import org.bson.conversions.Bson;
-import java.util.*;
-
-public class MongoAggregation {
-    public static void main(String[] args) {
-        // MongoDB Connection
-        MongoClient mongoClient = MongoClients.create("mongodb://localhost:27017");
-        MongoDatabase database = mongoClient.getDatabase("yourDatabase");
-
-        // Collection References
-        MongoCollection<Document> collection1 = database.getCollection("collection1");
-        MongoCollection<Document> collection2 = database.getCollection("collection2");
-
-        // Define dynamic selection & grouping attributes
-        List<String> selectionAttributes = Arrays.asList("cdsid", "mpsid");
-        List<String> groupingAttributes = Arrays.asList("line1", "line2");
-
-        // Step 1: Unwind delta and snapshot inputs
-        List<Bson> pipeline = Arrays.asList(
-            Aggregates.unwind("$snapshot.input", true),
-            Aggregates.unwind("$delta.input", true),
-
-            // Step 2: Extract key-value pairs from delta and snapshot
-            Aggregates.group(
-                "$_id",
-                new Document("seq", new Document("$first", "$seq"))
-                        .append("mapDefId", new Document("$first", "$mapDefId"))
-                        .append("selectionAttributes", new Document("$push", new Document("k", "$delta.input.name").append("v", "$delta.input.value")))
-                        .append("snapshotSelection", new Document("$push", new Document("k", "$snapshot.input.name").append("v", "$snapshot.input.value")))
-                        .append("groupingAttributes", new Document("$push", new Document("k", "$delta.input.name").append("v", "$delta.input.value")))
-                        .append("snapshotGrouping", new Document("$push", new Document("k", "$snapshot.input.name").append("v", "$snapshot.input.value")))
-            ),
-
-            // Step 3: Merge delta and snapshot values
-            Aggregates.addFields(new Document("finalSelectionAttributes",
-                new Document("$concatArrays", Arrays.asList(
-                    "$selectionAttributes",
-                    new Document("$filter",
-                        new Document("input", "$snapshotSelection")
-                                .append("as", "attr")
-                                .append("cond", new Document("$not", new Document("$in", Arrays.asList("$$attr.k", "$selectionAttributes.k"))))
-                    )
-                ))
-            )),
-            Aggregates.addFields(new Document("finalGroupingAttributes",
-                new Document("$concatArrays", Arrays.asList(
-                    "$groupingAttributes",
-                    new Document("$filter",
-                        new Document("input", "$snapshotGrouping")
-                                .append("as", "attr")
-                                .append("cond", new Document("$not", new Document("$in", Arrays.asList("$$attr.k", "$groupingAttributes.k"))))
-                    )
-                ))
-            )),
-
-            // Step 4: Extract unique grouping attribute values
-            Aggregates.addFields(new Document("groupAttributeValues",
-                new Document("$reduce", new Document("input", "$finalGroupingAttributes.v")
-                        .append("initialValue", Arrays.asList())
-                        .append("in", new Document("$setUnion", Arrays.asList("$$value", new Document("$split", Arrays.asList("$$this", ";"))))))
-            )),
-
-            // Step 5: Filter only records where grouping attribute values exceed 3
-            Aggregates.match(Filters.expr(new Document("$gt", Arrays.asList(new Document("$size", "$groupAttributeValues"), 3)))),
-
-            // Step 6: Lookup matching documents in Collection 2 using seq
-            Aggregates.lookup("collection2", "seq", "seq", "joined_docs"),
-
-            // Step 7: Filter by mapDefId (if needed)
-            Aggregates.match(Filters.eq("mapDefId", "99")),  // Can be parameterized
-
-            // Step 8: Final projection
-            Aggregates.project(Projections.fields(
-                Projections.excludeId(),
-                Projections.include("seq", "mapDefId", "finalSelectionAttributes", "finalGroupingAttributes", "groupAttributeValues", "joined_docs")
-            ))
-        );
-
-        // Execute Query
-        collection1.aggregate(pipeline).forEach(doc -> System.out.println(doc.toJson()));
-
-        // Close MongoDB Connection
-        mongoClient.close();
-    }
-}
+List<Bson> aggregationPipeline = Arrays.asList(
+    // Match documents from Collection 1 based on mapDefId, masterId, and presence of delta.input
+    Aggregates.match(Filters.and(
+        Filters.eq("mapDefId", mapDefId), // Use the mapDefId for filtering
+        Filters.eq("masterId", masterId), // Use the masterId for filtering
+        Filters.exists("delta.input") // Ensure delta.input is present
+    )),
+    
+    // Add fields for selection attributes (attributes to be filtered based on selection criteria)
+    Aggregates.addFields(new Field<>("selectionAttributes", new Document("input", new Document("$filter", 
+        new Document("input", "$delta.input")
+            .append("as", "item")
+            .append("cond", new Document("$in", Arrays.asList(
+                "$$item.name", selectionAttributes)))))), 
+    
+    // Project to include necessary fields and remove unnecessary ones
+    Aggregates.project(Projections.fields(
+        Projections.include("seq", "mapDefId", "masterId", "selectionAttributes", "snapshot.input", "delta.input")
+    )),
+    
+    // Lookup documents from Collection 2 based on seq field
+    Aggregates.lookup("collection2", "seq", "seq", "joined_docs"),
+    
+    // Unwind the joined documents from Collection 2
+    Aggregates.unwind("$joined_docs", true),
+    
+    // Group by selection attributes and collect distinct grouping attribute values
+    Aggregates.group(new Field<>("groupKey", 
+        new Document("selectionAttributes", "$selectionAttributes")
+            .append("groupingAttributes", "$groupingAttributes")),
+        Accumulators.addToSet("groupingAttributesValues", "$joined_docs.input")),
+    
+    // Filter group results where groupingAttributesValues have more than 3 distinct values
+    Aggregates.match(Filters.gt(new Document("groupingAttributesValues", new Document("$size", 3))))
+);
