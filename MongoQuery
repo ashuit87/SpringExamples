@@ -25,17 +25,18 @@ List<Bson> aggregationPipeline = Arrays.asList(
         Projections.include("seq", "mapDefId", "masterId", "selectionAttributes", "snapshot.input", "delta.input")
     )),
     
-    // Lookup documents from Collection 2 based on seq and mapDefId
-    Aggregates.lookup("collection2", 
+    // Lookup documents from Collection 2 based on both seq and mapDefId
+    Aggregates.lookup(
+        "collection2", 
         Arrays.asList(
-            new Document("seq", "$seq"), // Matching seq
-            new Document("mapDefId", mapDefId) // Matching mapDefId
+            new Document("seq", "$seq"), // Match seq field in Collection 1 to seq field in Collection 2
+            new Document("mapDefId", "$mapDefId") // Match mapDefId field in Collection 1 to mapDefId field in Collection 2
         ),
-        Arrays.asList("seq", "mapDefId"), // Fields in Collection 2 that correspond to seq and mapDefId
-        "joined_docs"
+        Arrays.asList("seq", "mapDefId"), // Foreign fields in Collection 2 to match
+        "joined_docs" // Name of the resulting array field in the output
     ),
     
-    // Unwind the joined documents from Collection 2 with preserveNullAndEmptyArrays option
+    // Unwind the joined documents from Collection 2
     Aggregates.unwind("$joined_docs", new UnwindOptions().preserveNullAndEmptyArrays(true)),
     
     // Group by selection attributes and collect distinct grouping attribute values
@@ -44,7 +45,7 @@ List<Bson> aggregationPipeline = Arrays.asList(
         Accumulators.addToSet("groupingAttributesValues", "$joined_docs.input")
     ),
     
-    // Match where groupingAttributesValues have more than 3 distinct values (Corrected size check)
+    // Match where groupingAttributesValues have more than 3 distinct values
     Aggregates.match(Filters.expr(
         new Document("$gt", Arrays.asList(
             new Document("$size", "$groupingAttributesValues"), 3
