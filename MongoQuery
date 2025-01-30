@@ -24,35 +24,27 @@ public class MongoAggregation {
         Bson unwindSnapshot = Aggregates.unwind("$snapshot.input", true);
 
        List<Bson> selectionFieldUpdates = new ArrayList<>();
-        
-        // Loop through each selection attribute and build the update operations
-        for (String attr : selectionAttributes) {
-            // Create a Document for the update operation
-            Document updateOperation = new Document("$set", 
-                new Document(attr, 
-                    new Document("$ifNull", Arrays.asList(
-                        // Try to get the value from delta.input (if present)
-                        new Document("$arrayElemAt", Arrays.asList(
-                            new Document("$filter", new Document()
-                                .append("input", "$delta.input") // Delta input array
-                                .append("as", "item")
-                                .append("cond", new Document("$eq", Arrays.asList("$$item.name", attr))) // Match name
-                            )),
-                            0  // Take the first element from the filtered result
-                        )),
-                        // If not found in delta, look for it in snapshot.input
-                        new Document("$arrayElemAt", Arrays.asList(
-                            new Document("$filter", new Document()
-                                .append("input", "$snapshot.input") // Snapshot input array
-                                .append("as", "item")
-                                .append("cond", new Document("$eq", Arrays.asList("$$item.name", attr))) // Match name
-                            )),
-                            0  // Take the first element from the filtered result
-                        ))
-                    ))));
 
-            // Add the created update operation to the selectionFieldUpdates list
-            selectionFieldUpdates.add(updateOperation);
+        // Iterate over each selection attribute and build the update operations
+        for (String attr : selectionAttributes) {
+            Document filterDelta = new Document("$filter", new Document()
+                    .append("input", "$delta.input")
+                    .append("as", "item")
+                    .append("cond", new Document("$eq", Arrays.asList("$$item.name", attr))));
+
+            Document filterSnapshot = new Document("$filter", new Document()
+                    .append("input", "$snapshot.input")
+                    .append("as", "item")
+                    .append("cond", new Document("$eq", Arrays.asList("$$item.name", attr))));
+
+            // Construct the update operation with $ifNull
+            Document setFieldUpdate = new Document(attr, new Document("$ifNull", Arrays.asList(
+                    new Document("$arrayElemAt", Arrays.asList(filterDelta, 0)),
+                    new Document("$arrayElemAt", Arrays.asList(filterSnapshot, 0))
+            )));
+
+            // Add to the list of updates
+            selectionFieldUpdates.add(Updates.set(attr, setFieldUpdate));
         }
 
 
