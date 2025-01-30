@@ -27,21 +27,30 @@ public class MongoAggregation {
       List<Bson> selectionFieldUpdates = selectionAttributes.stream()
     .map(attr -> Updates.set(attr, new Document("$ifNull", Arrays.asList(
         new Document("$arrayElemAt", Arrays.asList(
-            new Document("$filter", new Document()
-                .append("input", "$delta.input")  // Fix: Add "$delta.input"
-                .append("as", "item")
-                .append("cond", new Document("$eq", Arrays.asList("$$item.name", attr)))
-            ), 0)
+            new Document("$map", new Document()
+                .append("input", new Document("$filter", new Document()
+                    .append("input", "$delta.input")  // Filtering from delta
+                    .append("as", "item")
+                    .append("cond", new Document("$eq", Arrays.asList("$$item.name", attr)))
+                ))
+                .append("as", "result")
+                .append("in", "$$result.value") // Extract the value
+            ), 0) // Take first matching value
         )),
         new Document("$arrayElemAt", Arrays.asList(
-            new Document("$filter", new Document()
-                .append("input", "$snapshot.input")  // Fix: Add "$snapshot.input"
-                .append("as", "item")
-                .append("cond", new Document("$eq", Arrays.asList("$$item.name", attr)))
+            new Document("$map", new Document()
+                .append("input", new Document("$filter", new Document()
+                    .append("input", "$snapshot.input")  // Filtering from snapshot
+                    .append("as", "item")
+                    .append("cond", new Document("$eq", Arrays.asList("$$item.name", attr)))
+                ))
+                .append("as", "result")
+                .append("in", "$$result.value") // Extract the value
             ), 0)
         ))
-    ))))
+    )))))
     .collect(Collectors.toList());
+
 
         Bson addSelectionFields = Aggregates.addFields(selectionFieldUpdates);
 
