@@ -57,13 +57,16 @@ public class MongoAggregation {
             selectionFieldUpdates.add(Updates.addFields(new Field<>(attr, setFieldUpdate)));  // 38
         }
 
-        // Step 5: Lookup Collection 2 using seq and mapDefId
-        Bson lookupStage = Aggregates.lookup(
-            "collection2",  // Name of the second collection
-            Arrays.asList("seq", "mapDefId"),  // Local fields from Collection 1
-            Arrays.asList("seq", "mapDefId"),  // Foreign fields from Collection 2
-            "joined_docs"    // Name of the new field to store the joined documents
-        );
+        // Step 4: Lookup Collection 2 using seq and mapDefId (with the correct lookup logic)
+    Aggregates.lookup(
+        "collection2",  // Collection 2
+        Arrays.asList(
+            new Document("seq", "$delta.seq"),  // Local field inside delta
+            new Document("mapDefId", "$mapDefId")  // Local field mapDefId
+        ),
+        Arrays.asList("seq", "mapDefId"),  // Foreign fields in Collection 2
+        "joined_docs"  // Store the result of the lookup in "joined_docs"
+    ),
 
         // Step 6: Handle missing lookup results (if empty, fallback to Collection 1 only)
         Bson setFallback = Aggregates.addFields(
