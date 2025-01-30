@@ -6,14 +6,21 @@ List<Bson> aggregationPipeline = Arrays.asList(
         Filters.exists("delta.input") // Ensure delta.input is present
     )),
     
-    // Add fields for selection attributes (attributes to be filtered based on selection criteria)
-    Aggregates.addFields(new Field<>("selectionAttributes", new Document("input", new Document("$filter", 
-        new Document("input", "$delta.input")
-            .append("as", "item")
-            .append("cond", new Document("$in", Arrays.asList(
-                "$$item.name", selectionAttributes)))))), 
+    // Add selectionAttributes field to filter attributes based on selection criteria
+    Aggregates.addFields(
+        new Field<>("selectionAttributes", 
+            new Document("$filter", 
+                new Document("input", "$delta.input")
+                    .append("as", "item")
+                    .append("cond", new Document("$in", Arrays.asList(
+                        "$$item.name", selectionAttributes))
+                    )
+                )
+            )
+        )
+    ),
     
-    // Project to include necessary fields and remove unnecessary ones
+    // Project to include necessary fields
     Aggregates.project(Projections.fields(
         Projections.include("seq", "mapDefId", "masterId", "selectionAttributes", "snapshot.input", "delta.input")
     )),
@@ -28,8 +35,9 @@ List<Bson> aggregationPipeline = Arrays.asList(
     Aggregates.group(new Field<>("groupKey", 
         new Document("selectionAttributes", "$selectionAttributes")
             .append("groupingAttributes", "$groupingAttributes")),
-        Accumulators.addToSet("groupingAttributesValues", "$joined_docs.input")),
+        Accumulators.addToSet("groupingAttributesValues", "$joined_docs.input")
+    )),
     
-    // Correct way to match where groupingAttributesValues have more than 3 distinct values
+    // Match where groupingAttributesValues have more than 3 distinct values
     Aggregates.match(Filters.gt("$groupingAttributesValues", 3)) // Size condition corrected
 );
