@@ -24,34 +24,28 @@ public class MongoAggregation {
         Bson unwindSnapshot = Aggregates.unwind("$snapshot.input", true);
 
         // Step 3: Use $set (MongoDB 4.2+) to dynamically extract selection attributes
-     List<Bson> selectionFieldUpdates = selectionAttributes.stream()
+        List<Bson> selectionFieldUpdates = selectionAttributes.stream()
     .map(attr -> Updates.set(attr, new Document("$ifNull", Arrays.asList(
+        // Try to get the value from delta input array first
         new Document("$arrayElemAt", Arrays.asList(
-            new Document("$map", new Document()
-                .append("input", new Document("$filter", new Document()
-                    .append("input", "$delta.input")  // Filtering delta input
-                    .append("as", "item")
-                    .append("cond", new Document("$eq", Arrays.asList("$$item.name", attr)))
-                )))
-                .append("as", "result")
-                .append("in", "$$result.value")  // Extract the 'value' field
-            ), 0) // Get first element if available
+            new Document("$filter", new Document()
+                .append("input", "$delta.input") // Delta input array
+                .append("as", "item")
+                .append("cond", new Document("$eq", Arrays.asList("$$item.name", attr))) // Match name
+            )),
+            0  // Take the first element from the filtered result
         )),
+        // If no value found in delta, get it from snapshot input array
         new Document("$arrayElemAt", Arrays.asList(
-            new Document("$map", new Document()
-                .append("input", new Document("$filter", new Document()
-                    .append("input", "$snapshot.input")  // Filtering snapshot input
-                    .append("as", "item")
-                    .append("cond", new Document("$eq", Arrays.asList("$$item.name", attr)))
-                )))
-                .append("as", "result")
-                .append("in", "$$result.value")  // Extract the 'value' field
-            ), 0) // Get first element if available
+            new Document("$filter", new Document()
+                .append("input", "$snapshot.input") // Snapshot input array
+                .append("as", "item")
+                .append("cond", new Document("$eq", Arrays.asList("$$item.name", attr))) // Match name
+            )),
+            0 // Take the first element from the filtered result
         ))
     )))))
     .collect(Collectors.toList());
-
-
 
         Bson addSelectionFields = Aggregates.addFields(selectionFieldUpdates);
 
