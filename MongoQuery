@@ -1,8 +1,8 @@
 List<Bson> aggregationPipeline = Arrays.asList(
     // Match documents from Collection 1 based on mapDefId, masterId, and presence of delta.input
     Aggregates.match(Filters.and(
-        Filters.eq("mapDefId", mapDefId), // Use the mapDefId for filtering
-        Filters.eq("masterId", masterId), // Use the masterId for filtering
+        Filters.eq("mapDefId", mapDefId), // Use mapDefId for filtering in Collection 1
+        Filters.eq("masterId", masterId), // Use masterId for filtering
         Filters.exists("delta.input") // Ensure delta.input is present
     )),
     
@@ -25,8 +25,15 @@ List<Bson> aggregationPipeline = Arrays.asList(
         Projections.include("seq", "mapDefId", "masterId", "selectionAttributes", "snapshot.input", "delta.input")
     )),
     
-    // Lookup documents from Collection 2 based on seq field
-    Aggregates.lookup("collection2", "seq", "seq", "joined_docs"),
+    // Lookup documents from Collection 2 based on seq and mapDefId
+    Aggregates.lookup("collection2", 
+        Arrays.asList(
+            new Document("seq", "$seq"), // Matching seq
+            new Document("mapDefId", mapDefId) // Matching mapDefId
+        ),
+        Arrays.asList("seq", "mapDefId"), // Fields in Collection 2 that correspond to seq and mapDefId
+        "joined_docs"
+    ),
     
     // Unwind the joined documents from Collection 2 with preserveNullAndEmptyArrays option
     Aggregates.unwind("$joined_docs", new UnwindOptions().preserveNullAndEmptyArrays(true)),
