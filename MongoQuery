@@ -59,13 +59,16 @@ public class MongoAggregation {
 
         // Step 4: Lookup Collection 2 using seq and mapDefId (with the correct lookup logic)
     Aggregates.lookup(
-                            "collection2", // from
-                            Arrays.asList(
-                                    new Document("let", new Document("col1_mapDefId", "$mapDefId").append("col1_deltaSeq", "$delta.seq")), // let
-                                    match(expr(and(eq("$mapDefId", "$$col1_mapDefId"), eq("$seq", "$$col1_deltaSeq")))) // pipeline's $match
-                            ),
-                            "joined_docs" // as
-                    ),
+                        "collection2", // from
+                        Arrays.asList(
+                                new Document("let", new Document("col1_mapDefId", "$mapDefId").append("col1_deltaSeq", "$delta.seq")),
+                                new Document("$match", new Document("$expr", new Document("$and", Arrays.asList(
+                                        new Document("$eq", Arrays.asList("$mapDefId", "$$col1_mapDefId")),
+                                        new Document("$eq", Arrays.asList("$seq", "$$col1_deltaSeq"))
+                                )))) // Correct way to use $match with $expr and $eq
+                        ),
+                        "joined_docs" // as
+                ),
 
         // Step 6: Handle missing lookup results (if empty, fallback to Collection 1 only)
         Bson setFallback = Aggregates.addFields(
