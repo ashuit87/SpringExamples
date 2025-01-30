@@ -1,82 +1,88 @@
-import com.mongodb.client.MongoCollection;
-import com.mongodb.client.model.Aggregates;
-import com.mongodb.client.model.Filters;
-import com.mongodb.client.model.UnwindOptions;
+import com.mongodb.client.*;
+import com.mongodb.client.model.*;
 import org.bson.Document;
 import org.bson.conversions.Bson;
+import java.util.*;
 
-import java.util.Arrays;
-import java.util.List;
+public class MongoAggregation {
+    public static void main(String[] args) {
+        // MongoDB Connection
+        MongoClient mongoClient = MongoClients.create("mongodb://localhost:27017");
+        MongoDatabase database = mongoClient.getDatabase("yourDatabase");
 
-MongoCollection<Document> collection1 = database.getCollection("collection1"); // First collection
-MongoCollection<Document> collection2 = database.getCollection("collection2"); // Second collection
+        // Collection References
+        MongoCollection<Document> collection1 = database.getCollection("collection1");
+        MongoCollection<Document> collection2 = database.getCollection("collection2");
 
-// Dynamic selection attributes and grouping attributes
-List<String> selectionAttributes = Arrays.asList("cdsid", "mpsid"); // Example dynamic selection attributes
-List<String> groupingAttributes = Arrays.asList("line1", "line2"); // Example dynamic grouping attributes
+        // Define dynamic selection & grouping attributes
+        List<String> selectionAttributes = Arrays.asList("cdsid", "mpsid");
+        List<String> groupingAttributes = Arrays.asList("line1", "line2");
 
-// Define mapDefId and masterId for filtering
-String mapDefId = "99"; // Replace with your dynamic mapDefId
-String masterId = "12"; // Replace with your dynamic masterId
+        // Step 1: Unwind delta and snapshot inputs
+        List<Bson> pipeline = Arrays.asList(
+            Aggregates.unwind("$snapshot.input", true),
+            Aggregates.unwind("$delta.input", true),
 
-// Dynamically create the group-by stage for selection attributes
-Document groupFields = new Document();
-for (String selectionAttribute : selectionAttributes) {
-    groupFields.append(selectionAttribute, 
-        new Document("$first", new Document("$cond", Arrays.asList(
-            new Document("$eq", Arrays.asList("$delta.input.name", selectionAttribute)), 
-            "$delta.input.value", null))));
-}
+            // Step 2: Extract key-value pairs from delta and snapshot
+            Aggregates.group(
+                "$_id",
+                new Document("seq", new Document("$first", "$seq"))
+                        .append("mapDefId", new Document("$first", "$mapDefId"))
+                        .append("selectionAttributes", new Document("$push", new Document("k", "$delta.input.name").append("v", "$delta.input.value")))
+                        .append("snapshotSelection", new Document("$push", new Document("k", "$snapshot.input.name").append("v", "$snapshot.input.value")))
+                        .append("groupingAttributes", new Document("$push", new Document("k", "$delta.input.name").append("v", "$delta.input.value")))
+                        .append("snapshotGrouping", new Document("$push", new Document("k", "$snapshot.input.name").append("v", "$snapshot.input.value")))
+            ),
 
-// Dynamically collect distinct group attribute values (previously "lineValues")
-Document groupAttributeValues = new Document("groupAttributeValues", 
-    new Document("$push", new Document("$cond", Arrays.asList(
-        new Document("$in", Arrays.asList("$delta.input.name", groupingAttributes)),
-        new Document("$split", Arrays.asList("$delta.input.value", ";")),
-        Arrays.asList())))));
+            // Step 3: Merge delta and snapshot values
+            Aggregates.addFields(new Document("finalSelectionAttributes",
+                new Document("$concatArrays", Arrays.asList(
+                    "$selectionAttributes",
+                    new Document("$filter",
+                        new Document("input", "$snapshotSelection")
+                                .append("as", "attr")
+                                .append("cond", new Document("$not", new Document("$in", Arrays.asList("$$attr.k", "$selectionAttributes.k"))))
+                    )
+                ))
+            )),
+            Aggregates.addFields(new Document("finalGroupingAttributes",
+                new Document("$concatArrays", Arrays.asList(
+                    "$groupingAttributes",
+                    new Document("$filter",
+                        new Document("input", "$snapshotGrouping")
+                                .append("as", "attr")
+                                .append("cond", new Document("$not", new Document("$in", Arrays.asList("$$attr.k", "$groupingAttributes.k"))))
+                    )
+                ))
+            )),
 
-// Add the group attribute values collection to the group fields
-groupFields.append("groupAttributeValues", groupAttributeValues);
+            // Step 4: Extract unique grouping attribute values
+            Aggregates.addFields(new Document("groupAttributeValues",
+                new Document("$reduce", new Document("input", "$finalGroupingAttributes.v")
+                        .append("initialValue", Arrays.asList())
+                        .append("in", new Document("$setUnion", Arrays.asList("$$value", new Document("$split", Arrays.asList("$$this", ";"))))))
+            )),
 
-// Aggregation pipeline for both collections with $lookup for the join
-List<Bson> pipeline = Arrays.asList(
-    // Match documents based on mapDefId and masterId in the first collection (no seq filter here)
-    Aggregates.match(Filters.and(
-        Filters.eq("mapDefId", mapDefId),
-        Filters.eq("masterId", masterId)  // Only in Collection 1
-    )),
-    
-    // Perform $lookup to join the second collection based on seq field
-    Aggregates.lookup(
-        "collection2", // Name of the second collection
-        "seq", // Field from the first collection (to match with Collection 2)
-        "seq", // Field from the second collection (to match with Collection 1)
-        "joined_docs" // Alias for the joined data
-    ),
-    
-    // Unwind the joined documents from the second collection, preserve nulls if needed
-    Aggregates.unwind("$joined_docs", new UnwindOptions().preserveNullAndEmptyArrays(true)),
-    
-    // Match the selection attributes (cdsid, mpsid) in both collections
-    Aggregates.match(Filters.in("delta.input.name", selectionAttributes)),
-    
-    // Group by selection attributes dynamically and collect distinct group attribute values
-    Aggregates.group(groupFields),
-    
-    // Project to get the union of grouping attributes (line1, line2 values), ensuring uniqueness
-    Aggregates.project(new Document("groupAttributeValues", new Document("$reduce", new Document("input", "$groupAttributeValues")
-        .append("initialValue", Arrays.asList())
-        .append("in", new Document("$setUnion", Arrays.asList("$$value", "$$this")))))),
+            // Step 5: Filter only records where grouping attribute values exceed 3
+            Aggregates.match(Filters.expr(new Document("$gt", Arrays.asList(new Document("$size", "$groupAttributeValues"), 3)))),
 
-    // Match only those records where the number of distinct groupAttributeValues > 3
-    Aggregates.match(Filters.expr(new Document("$gt", Arrays.asList(
-        new Document("$size", "$groupAttributeValues"), 3))))
-);
+            // Step 6: Lookup matching documents in Collection 2 using seq
+            Aggregates.lookup("collection2", "seq", "seq", "joined_docs"),
 
-// Execute the aggregation query
-AggregateIterable<Document> result = collection1.aggregate(pipeline);
+            // Step 7: Filter by mapDefId (if needed)
+            Aggregates.match(Filters.eq("mapDefId", "99")),  // Can be parameterized
 
-// Iterate over the result and process documents
-for (Document doc : result) {
-    System.out.println(doc.toJson());
+            // Step 8: Final projection
+            Aggregates.project(Projections.fields(
+                Projections.excludeId(),
+                Projections.include("seq", "mapDefId", "finalSelectionAttributes", "finalGroupingAttributes", "groupAttributeValues", "joined_docs")
+            ))
+        );
+
+        // Execute Query
+        collection1.aggregate(pipeline).forEach(doc -> System.out.println(doc.toJson()));
+
+        // Close MongoDB Connection
+        mongoClient.close();
+    }
 }
