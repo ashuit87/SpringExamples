@@ -27,26 +27,31 @@ public class MongoAggregation {
         
         for (String attr : selectionAttributes) {
             // Creating Bson Update for each attribute
-            Bson update = Updates.set(attr, new Document("$ifNull", Arrays.asList(
-                // Try to get the value from delta.input (if present)
-                new Document("$arrayElemAt", Arrays.asList(
-                    new Document("$filter", new Document()
-                        .append("input", "$delta.input") // Delta input array
-                        .append("as", "item")
-                        .append("cond", new Document("$eq", Arrays.asList("$$item.name", attr))) // Match name
+            Document update = new Document("$set", new Document(attr, 
+                new Document("$ifNull", Arrays.asList(
+                    // Try to get the value from delta.input (if present)
+                    new Document("$arrayElemAt", Arrays.asList(
+                        new Document("$filter", new Document()
+                            .append("input", "$delta.input") // Delta input array
+                            .append("as", "item")
+                            .append("cond", new Document("$eq", Arrays.asList("$$item.name", attr))) // Match name
+                        )),
+                        0  // Take the first element from the filtered result
                     )),
-                    0  // Take the first element from the filtered result
-                )),
-                // If not found in delta, look for it in snapshot.input
-                new Document("$arrayElemAt", Arrays.asList(
-                    new Document("$filter", new Document()
-                        .append("input", "$snapshot.input") // Snapshot input array
-                        .append("as", "item")
-                        .append("cond", new Document("$eq", Arrays.asList("$$item.name", attr))) // Match name
-                    )),
-                    0  // Take the first element from the filtered result
-                ))
-            )));  // End of Updates.set
+                    // If not found in delta, look for it in snapshot.input
+                    new Document("$arrayElemAt", Arrays.asList(
+                        new Document("$filter", new Document()
+                            .append("input", "$snapshot.input") // Snapshot input array
+                            .append("as", "item")
+                            .append("cond", new Document("$eq", Arrays.asList("$$item.name", attr))) // Match name
+                        )),
+                        0  // Take the first element from the filtered result
+                    ))
+                ))));
+
+            // Add the update to the list
+            selectionFieldUpdates.add(update);
+        }
 
             // Add the update to the list
             selectionFieldUpdates.add(update);
