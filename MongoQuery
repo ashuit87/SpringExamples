@@ -25,15 +25,18 @@ List<Bson> aggregationPipeline = Arrays.asList(
         Projections.include("seq", "mapDefId", "masterId", "selectionAttributes", "snapshot.input", "delta.input")
     )),
     
-    // Lookup documents from Collection 2 based on both seq and mapDefId
+    // Lookup documents from Collection 2 based on both seq and mapDefId using the let operator
     Aggregates.lookup(
-        "collection2", 
-        Arrays.asList(
-            new Document("seq", "$seq"), // Match seq field in Collection 1 to seq field in Collection 2
-            new Document("mapDefId", "$mapDefId") // Match mapDefId field in Collection 1 to mapDefId field in Collection 2
+        "collection2",  // Collection 2
+        Arrays.asList(  // Using the let operator to define the local fields
+            new Document("seq", "$seq"),
+            new Document("mapDefId", "$mapDefId")
         ),
-        Arrays.asList("seq", "mapDefId"), // Foreign fields in Collection 2 to match
-        "joined_docs" // Name of the resulting array field in the output
+        Arrays.asList(  // Matching these fields with the corresponding foreign fields in Collection 2
+            new Document("seq", "$seq"),
+            new Document("mapDefId", "$mapDefId")
+        ),
+        "joined_docs"  // The name of the field to store the joined documents
     ),
     
     // Unwind the joined documents from Collection 2
