@@ -30,10 +30,14 @@
             addSelectionFieldsList.add(Aggregates.addFields(new Field<>(attr, setFieldUpdate))); // Correctly add to the list
         }
 
-        // Step 4: Lookup Collection 2 using seq and mapDefId (with the correct lookup logic)
+       // Create the $match stage to exclude documents from collection2
+        Bson collection2Filter = Aggregates.match(Filters.nin("_id", excludedIds));
+
+        // Now, create the $lookup stage (it remains mostly the same)
         Bson lookupStage = Aggregates.lookup(
                 "collection2",
                 Arrays.asList(
+                        collection2Filter, // <-- Add the filter stage HERE
                         new Document("let", new Document("col1_mapDefId", "$mapDefId").append("col1_deltaSeq", "$delta.seq")),
                         new Document("$match", new Document("$expr", new Document("$and", Arrays.asList(
                                 new Document("$eq", Arrays.asList("$mapDefId", "$$col1_mapDefId")),
