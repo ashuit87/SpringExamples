@@ -21,8 +21,8 @@ List<Bson> aggregationPipeline = Arrays.asList(
     // Lookup documents from Collection 2 based on seq field
     Aggregates.lookup("collection2", "seq", "seq", "joined_docs"),
     
-    // Unwind the joined documents from Collection 2
-    Aggregates.unwind("$joined_docs", true),
+    // Unwind the joined documents from Collection 2 with preserveNullAndEmptyArrays option
+    Aggregates.unwind("$joined_docs", new UnwindOptions().preserveNullAndEmptyArrays(true)),
     
     // Group by selection attributes and collect distinct grouping attribute values
     Aggregates.group(new Field<>("groupKey", 
@@ -30,6 +30,6 @@ List<Bson> aggregationPipeline = Arrays.asList(
             .append("groupingAttributes", "$groupingAttributes")),
         Accumulators.addToSet("groupingAttributesValues", "$joined_docs.input")),
     
-    // Filter group results where groupingAttributesValues have more than 3 distinct values
-    Aggregates.match(Filters.gt(new Document("groupingAttributesValues", new Document("$size", 3))))
+    // Correct way to match where groupingAttributesValues have more than 3 distinct values
+    Aggregates.match(Filters.gt("$groupingAttributesValues", 3)) // Size condition corrected
 );
