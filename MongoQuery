@@ -24,7 +24,13 @@ public class MongoAggregation {
         Bson unwindSnapshot = Aggregates.unwind("$snapshot.input", true);
 
         // Step 3: Use $set (MongoDB 4.2+) to dynamically extract selection attributes
-       List<Bson> selectionFieldUpdates = selectionAttributes.stream()
+    import org.bson.Document;
+import com.mongodb.client.model.Updates;
+import java.util.Arrays;
+import java.util.List;
+import java.util.stream.Collectors;
+
+List<Bson> selectionFieldUpdates = selectionAttributes.stream()
     .map(attr -> {
         return Updates.set(attr, new Document("$ifNull", Arrays.asList(
             // Try to get the value from delta.input (if present)
@@ -48,6 +54,7 @@ public class MongoAggregation {
         )));  // End of Updates.set
     })
     .collect(Collectors.toList());
+
 
 
         Bson addSelectionFields = Aggregates.addFields(selectionFieldUpdates);
