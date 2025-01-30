@@ -24,22 +24,34 @@ public class MongoAggregation {
         Bson unwindSnapshot = Aggregates.unwind("$snapshot.input", true);
 
         // Step 3: Use $set (MongoDB 4.2+) to dynamically extract selection attributes
-        List<Bson> selectionFieldUpdates = selectionAttributes.stream()
-            .map(attr -> Updates.set(attr, new Document("$ifNull", Arrays.asList(
-                new Document("$arrayElemAt", Arrays.asList(
-                    new Document("$filter", new Document("input", "$delta.input")
+       List<Bson> selectionFieldUpdates = selectionAttributes.stream()
+    .map(attr -> Updates.set(attr, new Document(attr, 
+        new Document("$ifNull", Arrays.asList(
+            new Document("$arrayElemAt", Arrays.asList(
+                new Document("$map", new Document()
+                    .append("input", new Document("$filter", new Document()
+                        .append("input", "$delta.input")  // Correct filter structure
                         .append("as", "item")
                         .append("cond", new Document("$eq", Arrays.asList("$$item.name", attr)))
-                    ), 0)
-                )),
-                new Document("$arrayElemAt", Arrays.asList(
-                    new Document("$filter", new Document("input", "$snapshot.input")
+                    ))
+                    .append("as", "result")
+                    .append("in", "$$result.value") // Extract the value field
+                ), 0) // Extract first element from filtered array
+            )),
+            new Document("$arrayElemAt", Arrays.asList(
+                new Document("$map", new Document()
+                    .append("input", new Document("$filter", new Document()
+                        .append("input", "$snapshot.input")  // Correct filter structure
                         .append("as", "item")
                         .append("cond", new Document("$eq", Arrays.asList("$$item.name", attr)))
-                    ), 0)
-                ))
-            ))))
-            .collect(Collectors.toList());
+                    ))
+                    .append("as", "result")
+                    .append("in", "$$result.value") // Extract the value field
+                ), 0)
+            ))
+        ))
+    )))
+    .collect(Collectors.toList());
 
         Bson addSelectionFields = Aggregates.addFields(selectionFieldUpdates);
 
