@@ -25,33 +25,33 @@ public class MongoAggregation {
         // Step 3: Prepare dynamic selectionFieldUpdates for attributes
         List<Bson> selectionFieldUpdates = new ArrayList<>();
 
-        // Step 4: Prepare dynamic selectionFieldUpdates for attributes
-List<Field> selectionFieldUpdates = new ArrayList<>();
+         // Step 3: Prepare dynamic selectionFieldUpdates for attributes
+        List<Field> selectionFieldUpdates = new ArrayList<>();
 
-// Iterate over each selection attribute and build the update operations
-for (String attr : selectionAttributes) {
-    Document filterDelta = new Document("$filter", new Document()
-            .append("input", "$delta.input")
-            .append("as", "item")
-            .append("cond", new Document("$eq", Arrays.asList("$$item.name", attr))));
+        // Iterate over each selection attribute and build the update operations
+        for (String attr : selectionAttributes) {
+            Document filterDelta = new Document("$filter", new Document()
+                    .append("input", "$delta.input")
+                    .append("as", "item")
+                    .append("cond", new Document("$eq", Arrays.asList("$$item.name", attr))));
 
-    Document filterSnapshot = new Document("$filter", new Document()
-            .append("input", "$snapshot.input")
-            .append("as", "item")
-            .append("cond", new Document("$eq", Arrays.asList("$$item.name", attr))));
+            Document filterSnapshot = new Document("$filter", new Document()
+                    .append("input", "$snapshot.input")
+                    .append("as", "item")
+                    .append("cond", new Document("$eq", Arrays.asList("$$item.name", attr))));
 
-    // Construct the update operation with $ifNull
-    Document setFieldUpdate = new Document("$ifNull", Arrays.asList(
-            new Document("$arrayElemAt", Arrays.asList(filterDelta, 0)),
-            new Document("$arrayElemAt", Arrays.asList(filterSnapshot, 0))
-    ));
+            // Construct the update operation with $ifNull
+            Document setFieldUpdate = new Document("$ifNull", Arrays.asList(
+                    new Document("$arrayElemAt", Arrays.asList(filterDelta, 0)),
+                    new Document("$arrayElemAt", Arrays.asList(filterSnapshot, 0))
+            ));
 
-    // Add the field update to the selectionFieldUpdates list
-    selectionFieldUpdates.add(new Field<>(attr, setFieldUpdate));
-}
+            // Add the field update to the selectionFieldUpdates list
+            selectionFieldUpdates.add(new Field<>(attr, setFieldUpdate));
+        }
 
-// Step 4: Add the selection fields dynamically to the aggregation pipeline
-Bson addSelectionFields = Aggregates.addFields(selectionFieldUpdates);
+        // Step 4: Add the selection fields dynamically to the aggregation pipeline
+        Bson addSelectionFields = Aggregates.addFields(selectionFieldUpdates);
 
         // Step 5: Lookup Collection 2 using seq and mapDefId
         Bson lookupStage = Aggregates.lookup(
