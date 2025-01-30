@@ -31,9 +31,9 @@ List<Bson> aggregationPipeline = Arrays.asList(
     // Perform the lookup to join with Collection 2 based on seq and mapDefId
     Aggregates.lookup(
         "collection2",  // Collection 2 name
-        Arrays.asList("seq", "mapDefId"),  // Join on seq and mapDefId
-        Arrays.asList("seq", "mapDefId"),
-        "joined_docs"
+        Arrays.asList("seq", "mapDefId"),  // Local fields from Collection 1
+        Arrays.asList("seq", "mapDefId"),  // Foreign fields from Collection 2
+        "joined_docs"    // Name of the new field to store the joined documents
     ),
     
     // Unwind the joined documents from Collection 2
@@ -41,17 +41,17 @@ List<Bson> aggregationPipeline = Arrays.asList(
     
     // Group by the dynamic grouping attributes
     Aggregates.group(
+        // Group by dynamic attributes
         new Document(groupingAttributes.stream()
             .collect(Collectors.toMap(
                 attribute -> attribute, 
                 attribute -> "$" + attribute
             ))
         ), 
-        Accumulators.addToSet("groupingAttributesValues", "$line1"),  // Collect distinct line1 values
-        Accumulators.addToSet("groupingAttributesValues", "$line2")   // Collect distinct line2 values
+        // Collect distinct values for dynamic grouping attributes
+        Accumulators.addToSet("groupingAttributesValues", "$$ROOT")
     ),
     
     // Match to filter groups with more than 3 distinct line values
     Aggregates.match(Filters.gt(new Document("groupingAttributesValues", new Document("$size", 3))))
 );
-
