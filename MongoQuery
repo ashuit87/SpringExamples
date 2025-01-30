@@ -53,5 +53,6 @@ List<Bson> aggregationPipeline = Arrays.asList(
     ),
     
     // Match to filter groups with more than 3 distinct line values
-    Aggregates.match(Filters.gt(new Document("groupingAttributesValues", new Document("$size", 3))))
+    Aggregates.match(Filters.expr(new Document("$gt", Arrays.asList(
+        new Document("$size", "$lineValues"), 3))))
 );
