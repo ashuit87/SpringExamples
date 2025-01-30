@@ -1,58 +1,104 @@
-// Dynamically provided variables
-String mapDefId = "99";  // Example value for mapDefId
-String masterId = "12";  // Example value for masterId
-List<String> selectionAttributes = Arrays.asList("cdsid", "mpsid");  // Example selection attributes (could be dynamic)
-List<String> groupingAttributes = Arrays.asList("line1", "line2");  // Example grouping attributes (could be dynamic)
+import com.mongodb.client.model.*;
+import org.bson.Document;
+import org.bson.conversions.Bson;
 
-List<Bson> aggregationPipeline = Arrays.asList(
-    // Match documents based on mapDefId and masterId in Collection 1
-    Aggregates.match(Filters.and(
-        Filters.eq("mapDefId", mapDefId),
-        Filters.eq("masterId", masterId)
-    )),
-    
-    // Unwind delta.input array to flatten the values in delta object
-    Aggregates.unwind("$delta.input", true),
-    
-    // Unwind snapshot.input array to flatten the values in snapshot object
-    Aggregates.unwind("$snapshot.input", true),
-    
-    // Add fields for dynamic selection and grouping attributes
-    Aggregates.addFields(
-        // For each selection attribute, try to pick the value from delta first and then snapshot
-        selectionAttributes.stream().map(attr -> {
-            return new Field<>(attr, Filters.or(
-                Filters.eq("delta.input.name", attr), 
-                Filters.eq("snapshot.input.name", attr)
-            ));
-        }).toArray(Field[]::new)
-    ),
-    
-    // Perform the lookup to join with Collection 2 based on seq and mapDefId
-    Aggregates.lookup(
-        "collection2",  // Collection 2 name
-        Arrays.asList("seq", "mapDefId"),  // Local fields from Collection 1
-        Arrays.asList("seq", "mapDefId"),  // Foreign fields from Collection 2
-        "joined_docs"    // Name of the new field to store the joined documents
-    ),
-    
-    // Unwind the joined documents from Collection 2
-    Aggregates.unwind("$joined_docs", true),
-    
-    // Group by the dynamic grouping attributes
-    Aggregates.group(
-        // Group by dynamic attributes
-        new Document(groupingAttributes.stream()
-            .collect(Collectors.toMap(
-                attribute -> attribute, 
-                attribute -> "$" + attribute
-            ))
-        ), 
-        // Collect distinct values for dynamic grouping attributes
-        Accumulators.addToSet("groupingAttributesValues", "$$ROOT")
-    ),
-    
-    // Match to filter groups with more than 3 distinct line values
-    Aggregates.match(Filters.expr(new Document("$gt", Arrays.asList(
-        new Document("$size", "$lineValues"), 3))))
-);
+import java.util.*;
+import java.util.stream.Collectors;
+
+public class MongoAggregation {
+    public static void main(String[] args) {
+        // Provided dynamic values
+        String mapDefId = "99";  
+        String masterId = "12";  
+        List<String> selectionAttributes = Arrays.asList("cdsid", "mpsid");  
+        List<String> groupingAttributes = Arrays.asList("line1", "line2");  
+
+        // Step 1: Match documents based on mapDefId and masterId in Collection 1
+        Bson matchStage = Aggregates.match(Filters.and(
+            Filters.eq("mapDefId", mapDefId),
+            Filters.eq("masterId", masterId)
+        ));
+
+        // Step 2: Unwind delta.input and snapshot.input to flatten attributes
+        Bson unwindDelta = Aggregates.unwind("$delta.input", true);
+        Bson unwindSnapshot = Aggregates.unwind("$snapshot.input", true);
+
+        // Step 3: Use $set (MongoDB 4.2+) to dynamically extract selection attributes
+        List<Bson> selectionFieldUpdates = selectionAttributes.stream()
+            .map(attr -> Updates.set(attr, new Document("$ifNull", Arrays.asList(
+                new Document("$arrayElemAt", Arrays.asList(
+                    new Document("$filter", new Document("input", "$delta.input")
+                        .append("as", "item")
+                        .append("cond", new Document("$eq", Arrays.asList("$$item.name", attr)))
+                    ), 0)
+                )),
+                new Document("$arrayElemAt", Arrays.asList(
+                    new Document("$filter", new Document("input", "$snapshot.input")
+                        .append("as", "item")
+                        .append("cond", new Document("$eq", Arrays.asList("$$item.name", attr)))
+                    ), 0)
+                ))
+            ))))
+            .collect(Collectors.toList());
+
+        Bson addSelectionFields = Aggregates.addFields(selectionFieldUpdates);
+
+        // Step 4: Lookup Collection 2 using seq and mapDefId
+        Bson lookupStage = Aggregates.lookup(
+            "collection2",
+            Arrays.asList(
+                new Document("seq", "$delta.seq"),
+                new Document("mapDefId", "$mapDefId")
+            ),
+            Arrays.asList("seq", "mapDefId"),
+            "joined_docs"
+        );
+
+        // Step 5: Handle missing lookup results (if empty, fallback to Collection 1 only)
+        Bson setFallback = Aggregates.addFields(
+            new Field<>("joined_docs", new Document("$ifNull", Arrays.asList("$joined_docs", Collections.emptyList())))
+        );
+
+        // Step 6: Unwind joined_docs, keeping null values (optional)
+        Bson unwindJoinedDocs = Aggregates.unwind("$joined_docs", true);
+
+        // Step 7: Use $match to check if lookup was successful
+        Bson matchLookupSuccess = Aggregates.match(new Document("$or", Arrays.asList(
+            new Document("joined_docs", new Document("$ne", Collections.emptyList())),  // Lookup succeeded
+            new Document("joined_docs", new Document("$exists", false))  // Fallback to Collection 1
+        )));
+
+        // Step 8: Group by dynamically provided grouping attributes
+        Document groupFields = new Document();
+        for (String attr : groupingAttributes) {
+            groupFields.append(attr, "$" + attr);
+        }
+
+        Bson groupStage = Aggregates.group(
+            groupFields,
+            Accumulators.addToSet("groupingAttributesValues", "$$ROOT")
+        );
+
+        // Step 9: Filter groups where the size of distinct line values > 3
+        Bson matchSizeFilter = Aggregates.match(Filters.expr(new Document("$gt", Arrays.asList(
+            new Document("$size", "$groupingAttributesValues"), 3
+        ))));
+
+        // Step 10: Build pipeline
+        List<Bson> aggregationPipeline = Arrays.asList(
+            matchStage,
+            unwindDelta,
+            unwindSnapshot,
+            addSelectionFields,
+            lookupStage,
+            setFallback,        // Ensure joined_docs is not null
+            unwindJoinedDocs,
+            matchLookupSuccess, // If lookup fails, use Collection 1 only
+            groupStage,
+            matchSizeFilter
+        );
+
+        // The aggregationPipeline can be executed using MongoDB client
+        System.out.println(aggregationPipeline);
+    }
+}
