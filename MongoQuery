@@ -6,14 +6,14 @@ List<Bson> aggregationPipeline = Arrays.asList(
         Filters.exists("delta.input") // Ensure delta.input is present
     )),
     
-    // Add selectionAttributes field to filter attributes based on selection criteria
+    // Add fields for selection attributes using $filter operator based on the provided selectionAttributes
     Aggregates.addFields(
         new Field<>("selectionAttributes", 
             new Document("$filter", 
                 new Document("input", "$delta.input")
                     .append("as", "item")
                     .append("cond", new Document("$in", Arrays.asList(
-                        "$$item.name", selectionAttributes))
+                        "$$item.name", selectionAttributes)) // Dynamically match based on selectionAttributes
                     )
                 )
             )
@@ -32,12 +32,11 @@ List<Bson> aggregationPipeline = Arrays.asList(
     Aggregates.unwind("$joined_docs", new UnwindOptions().preserveNullAndEmptyArrays(true)),
     
     // Group by selection attributes and collect distinct grouping attribute values
-    Aggregates.group(new Field<>("groupKey", 
-        new Document("selectionAttributes", "$selectionAttributes")
-            .append("groupingAttributes", "$groupingAttributes")),
+    Aggregates.group("_id", 
+        Accumulators.addToSet("selectionAttributes", "$selectionAttributes"),
         Accumulators.addToSet("groupingAttributesValues", "$joined_docs.input")
-    )),
+    ),
     
     // Match where groupingAttributesValues have more than 3 distinct values
-    Aggregates.match(Filters.gt("$groupingAttributesValues", 3)) // Size condition corrected
+    Aggregates.match(Filters.gt(new Document("$size", "$groupingAttributesValues"), 3)) // Size condition corrected
 );
