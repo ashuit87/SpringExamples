@@ -3,7 +3,6 @@ import org.bson.Document;
 import org.bson.conversions.Bson;
 
 import java.util.*;
-import java.util.stream.Collectors;
 
 public class MongoAggregation {
     public static void main(String[] args) {
@@ -23,7 +22,8 @@ public class MongoAggregation {
         Bson unwindDelta = Aggregates.unwind("$delta.input", true);
         Bson unwindSnapshot = Aggregates.unwind("$snapshot.input", true);
 
-       List<Bson> selectionFieldUpdates = new ArrayList<>();
+        // Step 3: Prepare dynamic selectionFieldUpdates for attributes
+        List<Bson> selectionFieldUpdates = new ArrayList<>();
 
         // Iterate over each selection attribute and build the update operations
         for (String attr : selectionAttributes) {
@@ -47,35 +47,32 @@ public class MongoAggregation {
             selectionFieldUpdates.add(Updates.set(attr, setFieldUpdate));
         }
 
-
+        // Step 4: Add the selection fields dynamically to the aggregation pipeline
         Bson addSelectionFields = Aggregates.addFields(selectionFieldUpdates);
 
-        // Step 4: Lookup Collection 2 using seq and mapDefId
+        // Step 5: Lookup Collection 2 using seq and mapDefId
         Bson lookupStage = Aggregates.lookup(
-            "collection2",
-            Arrays.asList(
-                new Document("seq", "$delta.seq"),
-                new Document("mapDefId", "$mapDefId")
-            ),
-            Arrays.asList("seq", "mapDefId"),
-            "joined_docs"
+            "collection2",  // Name of the second collection
+            Arrays.asList("seq", "mapDefId"),  // Local fields from Collection 1
+            Arrays.asList("seq", "mapDefId"),  // Foreign fields from Collection 2
+            "joined_docs"    // Name of the new field to store the joined documents
         );
 
-        // Step 5: Handle missing lookup results (if empty, fallback to Collection 1 only)
+        // Step 6: Handle missing lookup results (if empty, fallback to Collection 1 only)
         Bson setFallback = Aggregates.addFields(
             new Field<>("joined_docs", new Document("$ifNull", Arrays.asList("$joined_docs", Collections.emptyList())))
         );
 
-        // Step 6: Unwind joined_docs, keeping null values (optional)
+        // Step 7: Unwind the joined_docs, keeping null values (optional)
         Bson unwindJoinedDocs = Aggregates.unwind("$joined_docs", true);
 
-        // Step 7: Use $match to check if lookup was successful
+        // Step 8: Match the documents based on the lookup result
         Bson matchLookupSuccess = Aggregates.match(new Document("$or", Arrays.asList(
             new Document("joined_docs", new Document("$ne", Collections.emptyList())),  // Lookup succeeded
             new Document("joined_docs", new Document("$exists", false))  // Fallback to Collection 1
         )));
 
-        // Step 8: Group by dynamically provided grouping attributes
+        // Step 9: Group by dynamically provided grouping attributes
         Document groupFields = new Document();
         for (String attr : groupingAttributes) {
             groupFields.append(attr, "$" + attr);
@@ -86,26 +83,26 @@ public class MongoAggregation {
             Accumulators.addToSet("groupingAttributesValues", "$$ROOT")
         );
 
-        // Step 9: Filter groups where the size of distinct line values > 3
+        // Step 10: Filter groups where the size of distinct line values > 3
         Bson matchSizeFilter = Aggregates.match(Filters.expr(new Document("$gt", Arrays.asList(
             new Document("$size", "$groupingAttributesValues"), 3
         ))));
 
-        // Step 10: Build pipeline
+        // Step 11: Build the full aggregation pipeline
         List<Bson> aggregationPipeline = Arrays.asList(
-            matchStage,
-            unwindDelta,
-            unwindSnapshot,
-            addSelectionFields,
-            lookupStage,
-            setFallback,        // Ensure joined_docs is not null
-            unwindJoinedDocs,
-            matchLookupSuccess, // If lookup fails, use Collection 1 only
-            groupStage,
-            matchSizeFilter
+            matchStage,           // Match the base documents
+            unwindDelta,          // Unwind the delta.input field
+            unwindSnapshot,       // Unwind the snapshot.input field
+            addSelectionFields,    // Add selection fields dynamically
+            lookupStage,           // Lookup into Collection 2
+            setFallback,           // Ensure joined_docs field is not null
+            unwindJoinedDocs,      // Unwind the joined docs from Collection 2
+            matchLookupSuccess,    // Match successful lookup or fallback
+            groupStage,            // Group the documents by dynamic attributes
+            matchSizeFilter        // Filter groups based on size condition
         );
 
-        // The aggregationPipeline can be executed using MongoDB client
+        // The aggregation pipeline is ready to be executed
         System.out.println(aggregationPipeline);
     }
 }
