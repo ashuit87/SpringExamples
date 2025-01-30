@@ -37,6 +37,10 @@ List<Bson> aggregationPipeline = Arrays.asList(
         Accumulators.addToSet("groupingAttributesValues", "$joined_docs.input")
     ),
     
-    // Match where groupingAttributesValues have more than 3 distinct values
-    Aggregates.match(Filters.gt(new Document("$size", "$groupingAttributesValues"), 3)) // Size condition corrected
+    // Match where groupingAttributesValues have more than 3 distinct values (Corrected size check)
+    Aggregates.match(Filters.expr(
+        new Document("$gt", Arrays.asList(
+            new Document("$size", "$groupingAttributesValues"), 3
+        ))
+    ))
 );
