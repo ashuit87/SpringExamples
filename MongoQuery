@@ -33,16 +33,23 @@
        // Create the $match stage to exclude documents from collection2
         Bson collection2Filter = Aggregates.match(Filters.nin("_id", excludedIds));
 
-        // Now, create the $lookup stage (it remains mostly the same)
+         List<Variable<?>> letVariables = Arrays.asList(
+                new Variable<>("col1_mapDefId", "$mapDefId"),
+                new Variable<>("col1_deltaSeq", "$delta.seq") 
+        );
         Bson lookupStage = Aggregates.lookup(
-                "collection2",
+                "collection2", 
+                letVariables, // List of let variables goes here
                 Arrays.asList(
-                        collection2Filter, // <-- Add the filter stage HERE
-                        new Document("let", new Document("col1_mapDefId", "$mapDefId").append("col1_deltaSeq", "$delta.seq")),
-                        new Document("$match", new Document("$expr", new Document("$and", Arrays.asList(
-                                new Document("$eq", Arrays.asList("$mapDefId", "$$col1_mapDefId")),
-                                new Document("$eq", Arrays.asList("$seq", "$$col1_deltaSeq"))
-                        ))))
+                        collection2Filter, 
+                        new Document("$match", 
+                                new Document("$expr", 
+                                        new Document("$and", Arrays.asList(
+                                                new Document("$eq", Arrays.asList("$mapDefId", "$$col1_mapDefId")),
+                                                new Document("$eq", Arrays.asList("$seq", "$$col1_deltaSeq"))
+                                        )))
+                                ) 
+                        )
                 ),
                 "joined_docs"
         );
