@@ -11,32 +11,31 @@
         // Step 3: Prepare dynamic selectionFieldUpdates for attributes
         List<Bson> addSelectionFieldsList = new ArrayList<>(); // Use a List<Bson>
 
-       List<Bson> selectionFieldUpdates = new ArrayList<>();
+      List<Bson> selectionFieldUpdates = new ArrayList<>();
 
 for (String attr : selectionAttributes) {
-    // Get the first matching attribute from delta.input
-    Document filterDelta = new Document("$arrayElemAt", Arrays.asList(
-            new Document("$filter", new Document()
-                    .append("input", "$delta.input")
-                    .append("as", "item")
-                    .append("cond", new Document("$eq", Arrays.asList("$$item.name", attr)))
-            ), 0));
+    // Select value from delta.input if present
+    Bson selectDeltaValue = new Document("$cond", Arrays.asList(
+        new Document("$eq", Arrays.asList("$delta.input.name", attr)), 
+        "$delta.input.value", 
+        null
+    ));
 
-    // Get the first matching attribute from snapshot.input (fallback)
-    Document filterSnapshot = new Document("$arrayElemAt", Arrays.asList(
-            new Document("$filter", new Document()
-                    .append("input", "$snapshot.input")
-                    .append("as", "item")
-                    .append("cond", new Document("$eq", Arrays.asList("$$item.name", attr)))
-            ), 0));
+    // Select value from snapshot.input if delta.input is null
+    Bson selectSnapshotValue = new Document("$cond", Arrays.asList(
+        new Document("$eq", Arrays.asList("$snapshot.input.name", attr)), 
+        "$snapshot.input.value", 
+        null
+    ));
 
-    // Use $ifNull to prioritize delta.input, and fallback to snapshot.input
+    // Use $ifNull to prioritize delta.input, fallback to snapshot.input
     Bson addField = Aggregates.addFields(new Field<>(attr, 
-            new Document("$ifNull", Arrays.asList(filterDelta, filterSnapshot))
+        new Document("$ifNull", Arrays.asList(selectDeltaValue, selectSnapshotValue))
     ));
 
     selectionFieldUpdates.add(addField);
 }
+
 
        // Create the $match stage to exclude documents from collection2
         Bson collection2Filter = Aggregates.match(Filters.nin("_id", excludedIds));
