@@ -1,105 +1,16 @@
-// Step 1: Match documents based on mapDefId and masterId in Collection 1
-        Bson matchStage = Aggregates.match(Filters.and(
-                Filters.eq("mapDefId", mapDefId),
-                Filters.eq("masterId", masterId)
-        ));
-
-        // Step 2: Unwind delta.input and snapshot.input to flatten attributes
-        Bson unwindDelta = Aggregates.unwind("$delta.input", true);
-        Bson unwindSnapshot = Aggregates.unwind("$snapshot.input", true);
-
-        // Step 3: Prepare dynamic selectionFieldUpdates for attributes
-        List<Bson> addSelectionFieldsList = new ArrayList<>(); // Use a List<Bson>
-
-      List<Bson> selectionFieldUpdates = new ArrayList<>();
-
-for (String attr : selectionAttributes) {
-    // Select value from delta.input if present
-    Bson selectDeltaValue = new Document("$cond", Arrays.asList(
-        new Document("$eq", Arrays.asList("$delta.input.name", attr)), 
-        "$delta.input.value", 
-        null
-    ));
-
-    // Select value from snapshot.input if delta.input is null
-    Bson selectSnapshotValue = new Document("$cond", Arrays.asList(
-        new Document("$eq", Arrays.asList("$snapshot.input.name", attr)), 
-        "$snapshot.input.value", 
-        null
-    ));
-
-    // Use $ifNull to prioritize delta.input, fallback to snapshot.input
-    Bson addField = Aggregates.addFields(new Field<>(attr, 
-        new Document("$ifNull", Arrays.asList(selectDeltaValue, selectSnapshotValue))
-    ));
-
-    selectionFieldUpdates.add(addField);
-}
-
-
-       // Create the $match stage to exclude documents from collection2
-        Bson collection2Filter = Aggregates.match(Filters.nin("_id", excludedIds));
-
-         List<Variable<?>> letVariables = Arrays.asList(
-                new Variable<>("col1_mapDefId", "$mapDefId"),
-                new Variable<>("col1_deltaSeq", "$delta.seq") 
-        );
-        Bson lookupStage = Aggregates.lookup(
-                "collection2", 
-                letVariables, // List of let variables goes here
-                Arrays.asList(
-                        collection2Filter, 
-                        new Document("$match", 
-                                new Document("$expr", 
-                                        new Document("$and", Arrays.asList(
-                                                new Document("$eq", Arrays.asList("$mapDefId", "$$col1_mapDefId")),
-                                                new Document("$eq", Arrays.asList("$seq", "$$col1_deltaSeq"))
-                                        )))
-                                ) 
-                        )
-                ),
-                "joined_docs"
-        );
-
-        // Step 6: Handle missing lookup results (if empty, fallback to Collection 1 only)
-        Bson setFallback = Aggregates.addFields(
-                new Field<>("joined_docs", new Document("$ifNull", Arrays.asList("$joined_docs", Collections.emptyList())))
-        );
-
-        // Step 7: Unwind the joined_docs, keeping null values (optional)
-        Bson unwindJoinedDocs = Aggregates.unwind("$joined_docs", true);
-
-        // Step 8: Match the documents based on the lookup result
-        Bson matchLookupSuccess = Aggregates.match(new Document("$or", Arrays.asList(
-                new Document("joined_docs", new Document("$ne", Collections.emptyList())),
-                new Document("joined_docs", new Document("$exists", false))
-        )));
-
-        // Step 9: Group by dynamically provided grouping attributes
-        Document groupFields = new Document();
-        for (String attr : groupingAttributes) {
-            groupFields.append(attr, "$" + attr);
-        }
-
-        Bson groupStage = Aggregates.group(
-                groupFields,
-                Accumulators.addToSet("groupingAttributesValues", "$$ROOT")
-        );
-
-        // Step 10: Filter groups where the size of distinct line values > 3
-        Bson matchSizeFilter = Aggregates.match(Filters.expr(new Document("$gt", Arrays.asList(
-                new Document("$size", "$groupingAttributesValues"), 3
-        ))));
-
-        // Step 11: Build the full aggregation pipeline
-        List<Bson> aggregationPipeline = new ArrayList<>();
-        aggregationPipeline.add(matchStage);
-        aggregationPipeline.add(unwindDelta);
-        aggregationPipeline.add(unwindSnapshot);
-        aggregationPipeline.addAll(addSelectionFieldsList); // Add the list of $addFields stages
-        aggregationPipeline.add(lookupStage);
-        aggregationPipeline.add(setFallback);
-        aggregationPipeline.add(unwindJoinedDocs);
-        aggregationPipeline.add(matchLookupSuccess);
-        aggregationPipeline.add(groupStage);
-        aggregationPipeline.add(matchSizeFilter);
+{ 
+    "$addFields": { 
+      "cdsid": { 
+        "$ifNull": [
+          { "$cond": [ { "$eq": ["$delta.input.name", "cdsid"] }, "$delta.input.value", null ] },
+          { "$cond": [ { "$eq": ["$snapshot.input.name", "cdsid"] }, "$snapshot.input.value", null ] }
+        ]
+      },
+      "mpsid": { 
+        "$ifNull": [
+          { "$cond": [ { "$eq": ["$delta.input.name", "mpsid"] }, "$delta.input.value", null ] },
+          { "$cond": [ { "$eq": ["$snapshot.input.name", "mpsid"] }, "$snapshot.input.value", null ] }
+        ]
+      }
+    } 
+  }
