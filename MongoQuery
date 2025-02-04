@@ -1,16 +1,19 @@
-{ 
-    "$addFields": { 
-      "cdsid": { 
-        "$ifNull": [
-          { "$cond": [ { "$eq": ["$delta.input.name", "cdsid"] }, "$delta.input.value", null ] },
-          { "$cond": [ { "$eq": ["$snapshot.input.name", "cdsid"] }, "$snapshot.input.value", null ] }
-        ]
-      },
-      "mpsid": { 
-        "$ifNull": [
-          { "$cond": [ { "$eq": ["$delta.input.name", "mpsid"] }, "$delta.input.value", null ] },
-          { "$cond": [ { "$eq": ["$snapshot.input.name", "mpsid"] }, "$snapshot.input.value", null ] }
-        ]
-      }
-    } 
-  }
+{
+    "$lookup": {
+      "from": "collection2",
+      "let": { "seq": "$delta.seq", "mapDefId": "$mapDefId" },
+      "pipeline": [
+        {
+          "$match": {
+            "$expr": {
+              "$and": [
+                { "$eq": ["$seq", "$$seq"] },
+                { "$eq": ["$mapDefId", "$$mapDefId"] }
+              ]
+            }
+          }
+        }
+      ],
+      "as": "joined_docs"
+    }
+  },
