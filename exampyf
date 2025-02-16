@@ -1,43 +1,7 @@
-data = {
-    'BANK_ID': [1, 1, 1, 1, 2, 2, 2, 2],
-    'BANK_NAME': ['SBI', 'SBI', 'SBI', 'SBI', 'HDFC', 'HDFC', 'HDFC', 'HDFC'],
-    'ASOF': [23122024, 23122024, 21122024, 21122024, 23122024, 23122024, 21122024, 21122024],
-    'VARIABLE': ['V1', 'V2', 'V1', 'V2', 'V3', 'V4', 'V3', 'V4'],
-    'VALUE': [10, 5, 10, 5, 2, 1, 2, 1],
-    'Metric_Var_Id': ['Met1', 'Met1', 'Met2', 'Met2', 'Met3', 'Met3', 'Met4', 'Met4'],
-    'Expression': ['V1+V2', 'V1+V2', 'V1*V2', 'V1*V2', 'V3+V4', 'V3+V4', 'V3-V4', 'V3-V4']
-}
-
-df = pd.DataFrame(data)
-
-def evaluate_expression_for_group(group, expression):
-    # Replace variables in the expression with corresponding 'VALUE' from the group
-    for var in group['VARIABLE'].unique():
-        expression = expression.replace(var, str(group[group['VARIABLE'] == var]['VALUE'].values[0]))
-    # Evaluate the expression
-    return eval(expression)
-
-def apply_evaluation(row, df):
-    # Get the group for the current row's BANK_ID, BANK_NAME, and ASOF
-    group = df[(df['BANK_ID'] == row['BANK_ID']) & 
-               (df['BANK_NAME'] == row['BANK_NAME']) & 
-               (df['ASOF'] == row['ASOF'])]
-    # Use the evaluate_expression_for_group function to calculate the value
-    return evaluate_expression_for_group(group, row['Expression'])
-
-grouped_df = df.groupby(['BANK_ID', 'BANK_NAME', 'ASOF'], as_index=False).agg(
-    Variables=('VARIABLE', ', '.join),        # Concatenate variables
-    Value=('VALUE', 'sum'),                   # Sum of values (change as needed)
-    Expression=('Expression', 'first')        # Keep the first expression for each group
-)
-
-calculated_values = []
-
-for _, row in grouped_df.iterrows():
-    # Apply the evaluation function for each row and use the Expression from the original DataFrame
-    calculated_value = apply_evaluation(row, df)
-    calculated_values.append(calculated_value)
-
-grouped_df['Calculated_Value'] = calculated_values
-
-print(grouped_df)
+Initial Status	Operation	Action	Final Status
+SIT	Request UAT Approval	Submit	Deploying in UAT
+Deploying in UAT	Successfully Verified & Approved	Approve	Deployed in UAT
+Deployed in UAT	Request PROD Approval	Submit	Deploying in PROD
+Deploying in PROD	Successfully Verified & Approved	Approve	Deployed in PROD
+Deployed in UAT	UAT Review Failed / Enhancement Requested	Reject	SIT
+Deployed in PROD	PROD Review Failed / Enhancement Requested	Reject	SIT
