@@ -1,44 +1,23 @@
-import org.springframework.http.ResponseEntity;
-import java.util.concurrent.CompletableFuture;
-import java.util.function.Consumer;
+import re
 
-public class NonBlockingCF {
-    public static void main(String[] args) {
-        NonBlockingCF instance = new NonBlockingCF(); // Create an instance
+# Original text
+text = "Hello John, welcome to New York! John loves New York."
 
-        // Call async method with a callback
-        instance.processAsyncResponse(response -> {
-            System.out.println("Callback received response: " + response.getBody());
-            // Perform further processing here...
-        });
-
-        System.out.println("Main thread is free to do other work...");
-
-        // Keep the program running long enough to see the response (only for demo)
-        try {
-            Thread.sleep(3000);
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
-    }
-
-    // This method calls myMethod asynchronously and triggers a callback when done
-    public void processAsyncResponse(Consumer<ResponseEntity<Object>> callback) {
-        CompletableFuture.supplyAsync(this::myMethod) // Call instance method
-                .thenAccept(callback) // Process response when ready
-                .exceptionally(ex -> {
-                    System.err.println("Error occurred: " + ex.getMessage());
-                    return null;
-                });
-    }
-
-    // Instance method that simulates an API call
-    public ResponseEntity<Object> myMethod() {
-        try {
-            Thread.sleep(2000); // Simulate processing delay
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
-        return ResponseEntity.ok("Hello from myMethod!");
-    }
+# Dictionary of replacements
+replacements = {
+    "John": "Michael",
+    "New York": "Los Angeles",
+    "welcome": "greetings from"
 }
+
+# Create a regex pattern that matches any of the keys
+pattern = re.compile("|".join(map(re.escape, replacements.keys())))
+
+# Function to return the replacement value
+def replace_match(match):
+    return replacements[match.group(0)]
+
+# Perform the replacement
+new_text = pattern.sub(replace_match, text)
+
+print(new_text)
