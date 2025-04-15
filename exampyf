@@ -1,38 +1,35 @@
-import java.util.concurrent.*;
+public class ServiceHandler {
 
-public class ServiceChecker {
+    private final ExternalService externalService;
 
-    private static final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
-    private static ScheduledFuture<?> scheduledFuture;
-
-    public static void main(String[] args) {
-        Runnable checkTask = new Runnable() {
-            @Override
-            public void run() {
-                String response = checkService();
-
-                System.out.println("Service response: " + response);
-
-                if ("completed".equalsIgnoreCase(response)) {
-                    System.out.println("Service is completed. Stopping scheduler.");
-                    scheduledFuture.cancel(false);
-                    scheduler.shutdown();
-                }
-            }
-        };
-
-        // Schedule task to run every 5 seconds
-        scheduledFuture = scheduler.scheduleAtFixedRate(checkTask, 0, 5, TimeUnit.SECONDS);
+    public ServiceHandler(ExternalService externalService) {
+        this.externalService = externalService;
     }
 
-    // Simulated service check
-    private static String checkService() {
-        // Replace this with actual logic to call your service
-        // Simulating a delayed completion
-        if (Math.random() > 0.8) {
-            return "completed";
-        } else {
-            return "in_progress";
+    public void process() {
+        System.out.println("Starting some process...");
+
+        int maxRetries = 10;
+        int intervalMillis = 5000;
+
+        for (int i = 0; i < maxRetries; i++) {
+            String status = externalService.getStatus(); // your dependent service call
+            System.out.println("Attempt " + (i + 1) + ": Service status = " + status);
+
+            if ("completed".equalsIgnoreCase(status)) {
+                System.out.println("Service completed!");
+                break;
+            }
+
+            try {
+                Thread.sleep(intervalMillis);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt(); // good practice
+                System.out.println("Polling interrupted");
+                break;
+            }
         }
+
+        System.out.println("Process done.");
     }
 }
