@@ -1,23 +1,38 @@
-import re
+import java.util.concurrent.*;
 
-# Original text
-text = "Hello John, welcome to New York! John loves New York."
+public class ServiceChecker {
 
-# Dictionary of replacements
-replacements = {
-    "John": "Michael",
-    "New York": "Los Angeles",
-    "welcome": "greetings from"
+    private static final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
+    private static ScheduledFuture<?> scheduledFuture;
+
+    public static void main(String[] args) {
+        Runnable checkTask = new Runnable() {
+            @Override
+            public void run() {
+                String response = checkService();
+
+                System.out.println("Service response: " + response);
+
+                if ("completed".equalsIgnoreCase(response)) {
+                    System.out.println("Service is completed. Stopping scheduler.");
+                    scheduledFuture.cancel(false);
+                    scheduler.shutdown();
+                }
+            }
+        };
+
+        // Schedule task to run every 5 seconds
+        scheduledFuture = scheduler.scheduleAtFixedRate(checkTask, 0, 5, TimeUnit.SECONDS);
+    }
+
+    // Simulated service check
+    private static String checkService() {
+        // Replace this with actual logic to call your service
+        // Simulating a delayed completion
+        if (Math.random() > 0.8) {
+            return "completed";
+        } else {
+            return "in_progress";
+        }
+    }
 }
-
-# Create a regex pattern that matches any of the keys
-pattern = re.compile("|".join(map(re.escape, replacements.keys())))
-
-# Function to return the replacement value
-def replace_match(match):
-    return replacements[match.group(0)]
-
-# Perform the replacement
-new_text = pattern.sub(replace_match, text)
-
-print(new_text)
