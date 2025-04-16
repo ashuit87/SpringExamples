@@ -1,35 +1,14 @@
-public class ServiceHandler {
-
-    private final ExternalService externalService;
-
-    public ServiceHandler(ExternalService externalService) {
-        this.externalService = externalService;
+ @Bean(name = "stringTemplateEngine")
+    public TemplateEngine stringTemplateEngine() {
+        TemplateEngine engine = new TemplateEngine();
+        engine.addTemplateResolver(stringTemplateResolver());
+        return engine;
     }
 
-    public void process() {
-        System.out.println("Starting some process...");
-
-        int maxRetries = 10;
-        int intervalMillis = 5000;
-
-        for (int i = 0; i < maxRetries; i++) {
-            String status = externalService.getStatus(); // your dependent service call
-            System.out.println("Attempt " + (i + 1) + ": Service status = " + status);
-
-            if ("completed".equalsIgnoreCase(status)) {
-                System.out.println("Service completed!");
-                break;
-            }
-
-            try {
-                Thread.sleep(intervalMillis);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt(); // good practice
-                System.out.println("Polling interrupted");
-                break;
-            }
-        }
-
-        System.out.println("Process done.");
+    @Bean
+    public StringTemplateResolver stringTemplateResolver() {
+        StringTemplateResolver resolver = new StringTemplateResolver();
+        resolver.setTemplateMode(TemplateMode.HTML); // Or TEXT, XML, etc.
+        resolver.setCacheable(true); // Adjust as needed
+        return resolver;
     }
-}
