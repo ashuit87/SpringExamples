@@ -1,14 +1,30 @@
- @Bean(name = "stringTemplateEngine")
-    public TemplateEngine stringTemplateEngine() {
-        TemplateEngine engine = new TemplateEngine();
-        engine.addTemplateResolver(stringTemplateResolver());
-        return engine;
-    }
+Here's a professional and clear email you can send to request regression testing from the QA team:
 
-    @Bean
-    public StringTemplateResolver stringTemplateResolver() {
-        StringTemplateResolver resolver = new StringTemplateResolver();
-        resolver.setTemplateMode(TemplateMode.HTML); // Or TEXT, XML, etc.
-        resolver.setCacheable(true); // Adjust as needed
-        return resolver;
-    }
+---
+
+**Subject:** Request for Regression Testing – RHEL8 Tech Upgrade (Excel Import/Export Focus)
+
+Dear QA Team,
+
+As part of the upcoming technology upgrade, we have migrated our environment to the new RHEL8 image. To ensure system stability and maintain current functionality, we request your support in performing regression testing specifically focused on the Excel file import and export features.
+
+Please validate that all Excel-related operations behave as expected in the upgraded environment. This includes, but is not limited to:
+
+- Uploading and importing Excel files
+- Exporting data to Excel format
+- Data integrity and formatting consistency post-import/export
+- Handling of various Excel versions and edge cases
+
+Let us know if any additional test scenarios need to be considered or if you encounter any issues during validation.
+
+Appreciate your support and prompt attention to this.
+
+Best regards,  
+[Your Full Name]  
+[Your Job Title]  
+[Your Team/Department]  
+[Contact Info]
+
+---
+
+Would you like help drafting a follow-up message or test checklist as well?
