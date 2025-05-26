@@ -1,18 +1,49 @@
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
+package com.example.mongoshell.commands;
 
-app = FastAPI()
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.ObjectWriter;
+import com.mongodb.client.*;
+import org.bson.Document;
+import org.springframework.shell.command.annotation.Command;
+import org.springframework.shell.command.annotation.Option;
 
-# Allow specific origins
-origins = [
-    "http://localhost:3000",
-    "https://yourfrontend.com"
-]
+import java.io.FileWriter;
+import java.io.IOException;
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=origins,          # or ["*"] for all origins
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+@Command(group = "Mongo Tools")
+public class MongoExportCommand {
+
+    private final String mongoUri = "mongodb://localhost:27017"; // Or load from config
+    private final String dbName = "mydb"; // Change to your default DB
+
+    @Command(command = "mongo-export", description = "Export MongoDB document to .js insert script")
+    public String exportDefinition(
+            @Option(longNames = "id", required = true, description = "Document _id") String id,
+            @Option(longNames = "collection", required = true, description = "Mongo collection name") String collectionName,
+            @Option(longNames = "output", defaultValue = "exported_definition.js", description = "Output JS file") String outputFile
+    ) {
+        try (MongoClient mongoClient = MongoClients.create(mongoUri)) {
+            MongoDatabase database = mongoClient.getDatabase(dbName);
+            MongoCollection<Document> collection = database.getCollection(collectionName);
+
+            Document doc = collection.find(new Document("_id", id)).first();
+
+            if (doc == null) {
+                return "❌ Document with _id " + id + " not found.";
+            }
+
+            ObjectWriter writer = new ObjectMapper().writerWithDefaultPrettyPrinter();
+            String json = writer.writeValueAsString(doc);
+
+            String jsScript = String.format("db.%s.insertOne(%s);", collectionName, json);
+
+            try (FileWriter fw = new FileWriter(outputFile)) {
+                fw.write(jsScript);
+            }
+
+            return "✅ Exported to " + outputFile;
+        } catch (IOException e) {
+            return "❌ Error: " + e.getMessage();
+        }
+    }
+}
