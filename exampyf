@@ -1,49 +1,45 @@
-package com.example.mongoshell.commands;
+Absolutely! Here's the same content written in plain, copy-friendly text format:
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.ObjectWriter;
-import com.mongodb.client.*;
-import org.bson.Document;
-import org.springframework.shell.command.annotation.Command;
-import org.springframework.shell.command.annotation.Option;
+---
 
-import java.io.FileWriter;
-import java.io.IOException;
+**Design Considerations for the Generic Java Solution**
 
-@Command(group = "Mongo Tools")
-public class MongoExportCommand {
+1. **API Call Type Configuration**
+   The API call type (GET or POST) will be defined in the MongoDB configuration. This allows dynamic selection of the HTTP method based on the setup.
 
-    private final String mongoUri = "mongodb://localhost:27017"; // Or load from config
-    private final String dbName = "mydb"; // Change to your default DB
+2. **Request Scope Configuration**
+   The API can be triggered for either a single record or a full batch of records. This behavior will also be controlled through the MongoDB configuration.
 
-    @Command(command = "mongo-export", description = "Export MongoDB document to .js insert script")
-    public String exportDefinition(
-            @Option(longNames = "id", required = true, description = "Document _id") String id,
-            @Option(longNames = "collection", required = true, description = "Mongo collection name") String collectionName,
-            @Option(longNames = "output", defaultValue = "exported_definition.js", description = "Output JS file") String outputFile
-    ) {
-        try (MongoClient mongoClient = MongoClients.create(mongoUri)) {
-            MongoDatabase database = mongoClient.getDatabase(dbName);
-            MongoCollection<Document> collection = database.getCollection(collectionName);
+3. **Request Body Handling**
+   The request body may be empty, depending on the specific API and its configuration.
 
-            Document doc = collection.find(new Document("_id", id)).first();
+4. **API URL Structure**
+   The final API URL will be built using the following components:
 
-            if (doc == null) {
-                return "❌ Document with _id " + id + " not found.";
-            }
+   * Domain URL (required)
+   * Service Name (optional)
+   * Operation (optional)
 
-            ObjectWriter writer = new ObjectMapper().writerWithDefaultPrettyPrinter();
-            String json = writer.writeValueAsString(doc);
+5. **Request Object Composition**
+   The request object will always include:
 
-            String jsScript = String.format("db.%s.insertOne(%s);", collectionName, json);
+   * mapDefId
+   * requestId
+   * mapData
+   * configData (if available)
 
-            try (FileWriter fw = new FileWriter(outputFile)) {
-                fw.write(jsScript);
-            }
+   If the mapType is "file", an additional field `filePath` will be included.
 
-            return "✅ Exported to " + outputFile;
-        } catch (IOException e) {
-            return "❌ Error: " + e.getMessage();
-        }
-    }
-}
+6. **Response Object Structure**
+   The response will contain:
+
+   * A status field indicating overall success or failure (e.g., "SUCCESS" or "FAILURE")
+   * A message field providing a brief description or details about the outcome
+   * A list of sequences, where each sequence number is associated with a result ("SUCCESS" or "FAILURE"). For example:
+
+     * Sequence 12345: SUCCESS
+     * Sequence 12346: FAILURE
+
+---
+
+Let me know if you want this in a Word doc or markdown format too!
