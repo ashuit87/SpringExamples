@@ -1,45 +1,12 @@
-Absolutely! Here's the same content written in plain, copy-friendly text format:
+ProcessBuilder processBuilder = new ProcessBuilder(
+    "mv",
+    "/path/with/single'quote.txt",     // source
+    "/target/path/with'single.txt"     // destination
+);
+processBuilder.inheritIO(); // optional, to show output/errors
+Process process = processBuilder.start();
+int exitCode = process.waitFor();
+System.out.println("Exited with code: " + exitCode);
 
----
-
-**Design Considerations for the Generic Java Solution**
-
-1. **API Call Type Configuration**
-   The API call type (GET or POST) will be defined in the MongoDB configuration. This allows dynamic selection of the HTTP method based on the setup.
-
-2. **Request Scope Configuration**
-   The API can be triggered for either a single record or a full batch of records. This behavior will also be controlled through the MongoDB configuration.
-
-3. **Request Body Handling**
-   The request body may be empty, depending on the specific API and its configuration.
-
-4. **API URL Structure**
-   The final API URL will be built using the following components:
-
-   * Domain URL (required)
-   * Service Name (optional)
-   * Operation (optional)
-
-5. **Request Object Composition**
-   The request object will always include:
-
-   * mapDefId
-   * requestId
-   * mapData
-   * configData (if available)
-
-   If the mapType is "file", an additional field `filePath` will be included.
-
-6. **Response Object Structure**
-   The response will contain:
-
-   * A status field indicating overall success or failure (e.g., "SUCCESS" or "FAILURE")
-   * A message field providing a brief description or details about the outcome
-   * A list of sequences, where each sequence number is associated with a result ("SUCCESS" or "FAILURE"). For example:
-
-     * Sequence 12345: SUCCESS
-     * Sequence 12346: FAILURE
-
----
-
-Let me know if you want this in a Word doc or markdown format too!
+This avoids problems with single quotes, spaces, and other special characters 
+because each argument is passed directly without shell interpretation.
