@@ -1,82 +1,31 @@
-import java.util.*;
+public Map<String, Object> buildRequestPayload(ApiConfig config, Map<String, Object> runtimeData) {
+    Map<String, Object> requestBody = new HashMap<>();
+    RequestObjectConfig req = config.getRequestObject();
 
-public class ApiRequestBuilder {
+    if (req == null) return requestBody;
 
-    public static Map<String, Object> buildRequestPayload(Map<String, Object> configMap, Map<String, Object> runtimeData) {
-        Map<String, Object> requestBody = new HashMap<>();
-
-        Map<String, Object> requestObject = getMap(configMap, "requestObject");
-        String mapType = (String) configMap.getOrDefault("mapType", "");
-
-        if (requestObject == null) return requestBody;
-
-        if (getBoolean(requestObject, "includeMapDefId") && runtimeData.containsKey("mapDefId")) {
-            requestBody.put("mapDefId", runtimeData.get("mapDefId"));
-        }
-
-        if (getBoolean(requestObject, "includeRequestId") && runtimeData.containsKey("requestId")) {
-            requestBody.put("requestId", runtimeData.get("requestId"));
-        }
-
-        if (getBoolean(requestObject, "includeMapData") && runtimeData.containsKey("mapData")) {
-            requestBody.put("mapData", runtimeData.get("mapData"));
-        }
-
-        if (getBoolean(requestObject, "includeConfigData") && runtimeData.containsKey("configData")) {
-            requestBody.put("configData", runtimeData.get("configData"));
-        }
-
-        if ("file".equalsIgnoreCase(mapType)
-                && getBoolean(requestObject, "includeFilePath")
-                && runtimeData.containsKey("filePath")) {
-            requestBody.put("filePath", runtimeData.get("filePath"));
-        }
-
-        return requestBody;
+    if (req.isIncludeMapDefId() && runtimeData.containsKey("mapDefId")) {
+        requestBody.put("mapDefId", runtimeData.get("mapDefId"));
     }
 
-    public static String buildUrl(Map<String, Object> configMap) {
-        Map<String, Object> urlConfig = getMap(configMap, "urlConfig");
-        if (urlConfig == null || isBlank(urlConfig.get("domain"))) {
-            throw new IllegalArgumentException("Domain is required in URL config");
-        }
-
-        StringBuilder url = new StringBuilder(stripTrailingSlash(urlConfig.get("domain")));
-
-        if (!isBlank(urlConfig.get("service"))) {
-            url.append("/").append(stripSlashes(urlConfig.get("service")));
-        }
-
-        if (!isBlank(urlConfig.get("operation"))) {
-            url.append("/").append(stripSlashes(urlConfig.get("operation")));
-        }
-
-        return url.toString();
+    if (req.isIncludeRequestId() && runtimeData.containsKey("requestId")) {
+        requestBody.put("requestId", runtimeData.get("requestId"));
     }
 
-    // Helpers
-    private static Map<String, Object> getMap(Map<String, Object> source, String key) {
-        Object val = source.get(key);
-        if (val instanceof Map) {
-            return (Map<String, Object>) val;
-        }
-        return null;
+    if (req.isIncludeMapData() && runtimeData.containsKey("mapData")) {
+        requestBody.put("mapData", runtimeData.get("mapData"));
     }
 
-    private static boolean getBoolean(Map<String, Object> map, String key) {
-        Object val = map.get(key);
-        return Boolean.TRUE.equals(val);
+    if (req.isIncludeConfigData() && runtimeData.containsKey("configData")) {
+        requestBody.put("configData", runtimeData.get("configData"));
     }
 
-    private static boolean isBlank(Object val) {
-        return val == null || val.toString().trim().isEmpty();
+    // Only add filePath if mapType is "file" and includeFilePath is true
+    if ("file".equalsIgnoreCase(config.getMapType())
+        && req.isIncludeFilePath()
+        && runtimeData.containsKey("filePath")) {
+        requestBody.put("filePath", runtimeData.get("filePath"));
     }
 
-    private static String stripTrailingSlash(Object val) {
-        return val.toString().replaceAll("/+$", "");
-    }
-
-    private static String stripSlashes(Object val) {
-        return val.toString().replaceAll("^/+", "").replaceAll("/+$", "");
-    }
+    return requestBody;
 }
