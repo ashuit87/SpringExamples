@@ -1,31 +1,21 @@
-public Map<String, Object> buildRequestPayload(ApiConfig config, Map<String, Object> runtimeData) {
-    Map<String, Object> requestBody = new HashMap<>();
-    RequestObjectConfig req = config.getRequestObject();
+import java.util.HashMap;
+import java.util.Map;
 
-    if (req == null) return requestBody;
+public class ConfigUtil {
 
-    if (req.isIncludeMapDefId() && runtimeData.containsKey("mapDefId")) {
-        requestBody.put("mapDefId", runtimeData.get("mapDefId"));
+    // Define fixed constant keys
+    public static final String HOST = "host";
+    public static final String PORT = "port";
+    public static final String USERNAME = "username";
+    public static final String PASSWORD = "password";
+
+    // Method to populate config with required values
+    public static Map<String, String> createConfig(String host, String port, String username, String password) {
+        Map<String, String> config = new HashMap<>();
+        config.put(HOST, host);
+        config.put(PORT, port);
+        config.put(USERNAME, username);
+        config.put(PASSWORD, password);
+        return config;
     }
-
-    if (req.isIncludeRequestId() && runtimeData.containsKey("requestId")) {
-        requestBody.put("requestId", runtimeData.get("requestId"));
-    }
-
-    if (req.isIncludeMapData() && runtimeData.containsKey("mapData")) {
-        requestBody.put("mapData", runtimeData.get("mapData"));
-    }
-
-    if (req.isIncludeConfigData() && runtimeData.containsKey("configData")) {
-        requestBody.put("configData", runtimeData.get("configData"));
-    }
-
-    // Only add filePath if mapType is "file" and includeFilePath is true
-    if ("file".equalsIgnoreCase(config.getMapType())
-        && req.isIncludeFilePath()
-        && runtimeData.containsKey("filePath")) {
-        requestBody.put("filePath", runtimeData.get("filePath"));
-    }
-
-    return requestBody;
 }
