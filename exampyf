@@ -1,7 +1,7 @@
-@JsonIgnoreProperties(ignoreUnknown = true)
-public class UrlConfig {
-    private String domain;
-    private String service;
-    private String operation;
-    // Getters and setters
-}
+ObjectMapper objectMapper = new ObjectMapper();
+
+Map<String, Object> document = mongoTemplate.findById("abc123", Map.class, "your_collection");
+
+Map<String, Object> configMap = (Map<String, Object>) document.get("config");
+
+ApiConfig apiConfig = objectMapper.convertValue(configMap, ApiConfig.class);
