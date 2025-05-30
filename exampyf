@@ -1,14 +1,7 @@
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-
-@JsonIgnoreProperties(ignoreUnknown = true) // This allows extra fields to be ignored
-public class ApiConfig {
-    private String apiType;
-    private String requestScope;
-    private boolean allowEmptyRequestBody;
-    private String mapType;
-    private UrlConfig urlConfig;
-    private RequestObjectConfig requestObject;
-    private ResponseFormatConfig responseFormat;
-
+@JsonIgnoreProperties(ignoreUnknown = true)
+public class UrlConfig {
+    private String domain;
+    private String service;
+    private String operation;
     // Getters and setters
 }
