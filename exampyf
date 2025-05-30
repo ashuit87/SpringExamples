@@ -1,12 +1,14 @@
-ProcessBuilder processBuilder = new ProcessBuilder(
-    "mv",
-    "/path/with/single'quote.txt",     // source
-    "/target/path/with'single.txt"     // destination
-);
-processBuilder.inheritIO(); // optional, to show output/errors
-Process process = processBuilder.start();
-int exitCode = process.waitFor();
-System.out.println("Exited with code: " + exitCode);
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
-This avoids problems with single quotes, spaces, and other special characters 
-because each argument is passed directly without shell interpretation.
+@JsonIgnoreProperties(ignoreUnknown = true) // This allows extra fields to be ignored
+public class ApiConfig {
+    private String apiType;
+    private String requestScope;
+    private boolean allowEmptyRequestBody;
+    private String mapType;
+    private UrlConfig urlConfig;
+    private RequestObjectConfig requestObject;
+    private ResponseFormatConfig responseFormat;
+
+    // Getters and setters
+}
