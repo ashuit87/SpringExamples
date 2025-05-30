@@ -1,7 +1,92 @@
-ObjectMapper objectMapper = new ObjectMapper();
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
-Map<String, Object> document = mongoTemplate.findById("abc123", Map.class, "your_collection");
+@JsonIgnoreProperties(ignoreUnknown = true)
+public class RequestObjectConfig {
 
-Map<String, Object> configMap = (Map<String, Object>) document.get("config");
+    private boolean includeMapDefId;
+    private boolean includeRequestId;
+    private boolean includeMapData;
+    private boolean includeConfigData;
+    private boolean includeFilePath;
 
-ApiConfig apiConfig = objectMapper.convertValue(configMap, ApiConfig.class);
+    // Getters and Setters
+
+    public boolean isIncludeMapDefId() {
+        return includeMapDefId;
+    }
+
+    public void setIncludeMapDefId(boolean includeMapDefId) {
+        this.includeMapDefId = includeMapDefId;
+    }
+
+    public boolean isIncludeRequestId() {
+        return includeRequestId;
+    }
+
+    public void setIncludeRequestId(boolean includeRequestId) {
+        this.includeRequestId = includeRequestId;
+    }
+
+    public boolean isIncludeMapData() {
+        return includeMapData;
+    }
+
+    public void setIncludeMapData(boolean includeMapData) {
+        this.includeMapData = includeMapData;
+    }
+
+    public boolean isIncludeConfigData() {
+        return includeConfigData;
+    }
+
+    public void setIncludeConfigData(boolean includeConfigData) {
+        this.includeConfigData = includeConfigData;
+    }
+
+    public boolean isIncludeFilePath() {
+        return includeFilePath;
+    }
+
+    public void setIncludeFilePath(boolean includeFilePath) {
+        this.includeFilePath = includeFilePath;
+    }
+}
+
+
+
+
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+
+@JsonIgnoreProperties(ignoreUnknown = true)
+public class ResponseFormatConfig {
+
+    private boolean includeStatus;
+    private boolean includeMessage;
+    private boolean includeSequenceResults;
+
+    // Getters and Setters
+
+    public boolean isIncludeStatus() {
+        return includeStatus;
+    }
+
+    public void setIncludeStatus(boolean includeStatus) {
+        this.includeStatus = includeStatus;
+    }
+
+    public boolean isIncludeMessage() {
+        return includeMessage;
+    }
+
+    public void setIncludeMessage(boolean includeMessage) {
+        this.includeMessage = includeMessage;
+    }
+
+    public boolean isIncludeSequenceResults() {
+        return includeSequenceResults;
+    }
+
+    public void setIncludeSequenceResults(boolean includeSequenceResults) {
+        this.includeSequenceResults = includeSequenceResults;
+    }
+}
