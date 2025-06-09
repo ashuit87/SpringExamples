@@ -99,5 +99,15 @@ def decrypt_file_path(iv_b64: str, file_b64: str) -> str:
 @app.get("/download")
 async def download(iv: Optional[str] = None, file: Optional[str] = None, hmac: Optional[str] = None):
     if not iv or not file or not hmac:
-        raise HTTPException(status_code=400, deta_
+        raise HTTPException(status_code=400, detail="Missing iv, file, or hmac")
 
+    if not verify_hmac(iv, file, hmac):
+        raise HTTPException(status_code=403, detail="Invalid HMAC")
+
+    try:
+        file_path = decrypt_file_path(iv, file)
+        return PlainTextResponse(f"✅ Decrypted file path: {file_path}")
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
