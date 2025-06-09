@@ -1,28 +1,97 @@
-{
-  "_id": "abc123",
-  "name": "TestDefinition",
-  "type": "external",
-  "config": {
-    "apiType": "POST",
-    "requestScope": "SINGLE",
-    "allowEmptyRequestBody": false,
-    "mapType": "file",
-    "urlConfig": {
-      "domain": "https://api.example.com",
-      "service": "upload",
-      "operation": "start"
-    },
-    "requestObject": {
-      "includeMapDefId": true,
-      "includeRequestId": true,
-      "includeMapData": true,
-      "includeConfigData": true,
-      "includeFilePath": true
-    },
-    "responseFormat": {
-      "includeStatus": true,
-      "includeMessage": true,
-      "includeSequenceResults": true
+import javax.crypto.Cipher;
+import javax.crypto.Mac;
+import javax.crypto.spec.GCMParameterSpec;
+import javax.crypto.spec.SecretKeySpec;
+import java.security.SecureRandom;
+import java.util.Base64;
+
+public class SecureRedirectGenerator {
+    private static final String AES_ALGO = "AES/GCM/NoPadding";
+    private static final int GCM_TAG_LENGTH = 128; // bits
+    private static final int IV_LENGTH = 12;       // bytes
+    private static final byte[] AES_KEY = "1234567890abcdef".getBytes(); // 16-byte key
+    private static final String HMAC_SECRET = "your-hmac-secret-key";
+
+    public static void main(String[] args) throws Exception {
+        String filePath = "/secure/files/report.csv";
+
+        // Step 1: Generate IV
+        byte[] iv = new byte[IV_LENGTH];
+        new SecureRandom().nextBytes(iv);
+
+        // Step 2: AES-GCM encryption
+        Cipher cipher = Cipher.getInstance(AES_ALGO);
+        SecretKeySpec keySpec = new SecretKeySpec(AES_KEY, "AES");
+        GCMParameterSpec gcmSpec = new GCMParameterSpec(GCM_TAG_LENGTH, iv);
+        cipher.init(Cipher.ENCRYPT_MODE, keySpec, gcmSpec);
+        byte[] ciphertextWithTag = cipher.doFinal(filePath.getBytes("UTF-8"));
+
+        // Step 3: Base64 URL-safe encoding
+        String ivEncoded = Base64.getUrlEncoder().withoutPadding().encodeToString(iv);
+        String fileEncoded = Base64.getUrlEncoder().withoutPadding().encodeToString(ciphertextWithTag);
+
+        // Step 4: Generate HMAC for tamper protection
+        String dataToSign = "iv=" + ivEncoded + "&file=" + fileEncoded;
+        String hmac = generateHmac(dataToSign, HMAC_SECRET);
+
+        // Step 5: Create redirect URL
+        String redirectUrl = "http://localhost:5000/download?" + dataToSign + "&hmac=" + hmac;
+        System.out.println("Redirect URL:");
+        System.out.println(redirectUrl);
     }
-  }
+
+    private static String generateHmac(String data, String secret) throws Exception {
+        Mac mac = Mac.getInstance("HmacSHA256");
+        SecretKeySpec keySpec = new SecretKeySpec(secret.getBytes("UTF-8"), "HmacSHA256");
+        mac.init(keySpec);
+        byte[] hmacBytes = mac.doFinal(data.getBytes("UTF-8"));
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(hmacBytes);
+    }
 }
+
+
+
+
+from fastapi import FastAPI, Request, HTTPException
+from fastapi.responses import PlainTextResponse
+from typing import Optional
+from base64 import urlsafe_b64decode, urlsafe_b64encode
+from Crypto.Cipher import AES
+import hmac
+import hashlib
+
+app = FastAPI()
+
+# Must match Java side
+AES_KEY = b'1234567890abcdef'         # 16 bytes key
+HMAC_SECRET = 'your-hmac-secret-key'  # Use a strong shared secret
+
+def verify_hmac(iv: str, file: str, received_hmac: str) -> bool:
+    data = f"iv={iv}&file={file}"
+    digest = hmac.new(HMAC_SECRET.encode(), data.encode(), hashlib.sha256).digest()
+    expected_hmac = urlsafe_b64encode(digest).rstrip(b'=').decode()
+    return hmac.compare_digest(expected_hmac, received_hmac)
+
+def decrypt_file_path(iv_b64: str, file_b64: str) -> str:
+    iv = urlsafe_b64decode(iv_b64)
+    encrypted_data = urlsafe_b64decode(file_b64)
+    ciphertext = encrypted_data[:-16]
+    tag = encrypted_data[-16:]
+
+    cipher = AES.new(AES_KEY, AES.MODE_GCM, nonce=iv)
+    decrypted = cipher.decrypt_and_verify(ciphertext, tag)
+    return decrypted.decode("utf-8")
+
+@app.get("/download")
+async def download(iv: Optional[str] = None, file: Optional[str] = None, hmac: Optional[str] = None):
+    if not iv or not file or not hmac:
+        raise HTTPException(status_code=400, detail="Missing iv, file, or hmac")
+
+    if not verify_hmac(iv, file, hmac):
+        raise HTTPException(status_code=403, detail="Invalid HMAC")
+
+    try:
+        file_path = decrypt_file_path(iv, file)
+        return PlainTextResponse(f"✅ Decrypted file path: {file_path}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Decryption failed: {str(e)}")
