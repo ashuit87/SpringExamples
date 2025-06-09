@@ -52,7 +52,7 @@ public class SecureRedirectGenerator {
 
 
 
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import PlainTextResponse
 from typing import Optional
 from base64 import urlsafe_b64decode, urlsafe_b64encode
@@ -62,36 +62,42 @@ import hashlib
 
 app = FastAPI()
 
-# Must match Java side
+# Shared secrets – must exactly match the Java side
 AES_KEY = b'1234567890abcdef'         # 16 bytes key
-HMAC_SECRET = 'your-hmac-secret-key'  # Use a strong shared secret
+HMAC_SECRET = b'your-hmac-secret-key'  # bytes, not string
+
+def pad_base64(data: str) -> str:
+    """Ensure Base64 string has correct padding"""
+    return data + '=' * (-len(data) % 4)
 
 def verify_hmac(iv: str, file: str, received_hmac: str) -> bool:
-    data = f"iv={iv}&file={file}"
-    digest = hmac.new(HMAC_SECRET.encode(), data.encode(), hashlib.sha256).digest()
-    expected_hmac = urlsafe_b64encode(digest).rstrip(b'=').decode()
+    data = f"iv={iv}&file={file}".encode("utf-8")
+    mac = hmac.new(HMAC_SECRET, data, hashlib.sha256).digest()
+    expected_hmac = urlsafe_b64encode(mac).decode().rstrip("=")
     return hmac.compare_digest(expected_hmac, received_hmac)
 
 def decrypt_file_path(iv_b64: str, file_b64: str) -> str:
-    iv = urlsafe_b64decode(iv_b64)
-    encrypted_data = urlsafe_b64decode(file_b64)
+    try:
+        iv = urlsafe_b64decode(pad_base64(iv_b64))
+        encrypted_data = urlsafe_b64decode(pad_base64(file_b64))
+    except Exception as e:
+        raise ValueError(f"Base64 decoding failed: {e}")
+
+    if len(encrypted_data) < 16:
+        raise ValueError("Encrypted data is too short to contain authentication tag")
+
     ciphertext = encrypted_data[:-16]
     tag = encrypted_data[-16:]
 
-    cipher = AES.new(AES_KEY, AES.MODE_GCM, nonce=iv)
-    decrypted = cipher.decrypt_and_verify(ciphertext, tag)
-    return decrypted.decode("utf-8")
+    try:
+        cipher = AES.new(AES_KEY, AES.MODE_GCM, nonce=iv)
+        decrypted = cipher.decrypt_and_verify(ciphertext, tag)
+        return decrypted.decode("utf-8")
+    except Exception as e:
+        raise ValueError(f"AES decryption failed: {e}")
 
 @app.get("/download")
 async def download(iv: Optional[str] = None, file: Optional[str] = None, hmac: Optional[str] = None):
     if not iv or not file or not hmac:
-        raise HTTPException(status_code=400, detail="Missing iv, file, or hmac")
+        raise HTTPException(status_code=400, deta_
 
-    if not verify_hmac(iv, file, hmac):
-        raise HTTPException(status_code=403, detail="Invalid HMAC")
-
-    try:
-        file_path = decrypt_file_path(iv, file)
-        return PlainTextResponse(f"✅ Decrypted file path: {file_path}")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Decryption failed: {str(e)}")
