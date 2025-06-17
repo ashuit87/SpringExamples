@@ -1,13 +1,3 @@
-Hi Sheetal,
-
-I have a few open points regarding the SFRM external API integration:
-
-For the SFRM external API call, are they expected to provide a common URL for both POD and COB environments?
-
-If a common URL is not provided, how will we determine when their COB application is up and running?
-
-Possible Solutions:
-
-We can define two separate URLs in the rule definition—one for the production (POD) environment and another for the COB environment. Our application would switch between these URLs based on its active mode (POD or COB), assuming that SFRM also switches environments accordingly.
-
-Alternatively, we can configure both the POD and COB URLs in the application. During API calls, we can first attempt to hit the COB URL, and if no response is received, fall back to the POD URL. This logic would be handled within the API call implementation.
+registry=https://registry.npmjs.org/
+//registry.npmjs.org/:_authToken=${NPM_TOKEN}
+always-auth=true
