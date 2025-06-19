@@ -1,11 +1,15 @@
 git fetch origin
 
+cutoff_date=$(date -d '3 months ago' +%s)
+
 git for-each-ref refs/remotes/origin/ --format="%(refname:short)" | while read branch; do
   first_commit=$(git rev-list --reverse "$branch" | head -n 1)
   author=$(git show -s --format="%an" "$first_commit")
-  if [ "$author" = "Your Name" ]; then
-    branch_name="${branch#origin/}"
-    echo "Deleting $branch_name..."
-    git push origin --delete "$branch_name"
+  commit_date=$(git show -s --format="%ct" "$first_commit")  # commit date in epoch seconds
+
+  if [ "$author" = "Your Name" ] && [ "$commit_date" -lt "$cutoff_date" ]; then
+    clean_branch="${branch#origin/}"
+    echo "Deleting $clean_branch..."
+    git push origin --delete "$clean_branch"
   fi
 done
