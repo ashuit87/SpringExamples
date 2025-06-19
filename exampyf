@@ -1,1 +1,11 @@
-git for-each-ref refs/remotes/origin/ --format="%(refname:short) %(authorname)" | grep 'Your Name'
+git fetch origin
+
+git for-each-ref refs/remotes/origin/ --format="%(refname:short)" | while read branch; do
+  first_commit=$(git rev-list --reverse "$branch" | head -n 1)
+  author=$(git show -s --format="%an" "$first_commit")
+  if [ "$author" = "Your Name" ]; then
+    branch_name="${branch#origin/}"
+    echo "Deleting $branch_name..."
+    git push origin --delete "$branch_name"
+  fi
+done
