@@ -1,1 +1,1 @@
-git branch | grep -v "$(git rev-parse --abbrev-ref HEAD)" | xargs git branch -D
+git branch | grep -vE "$(git rev-parse --abbrev-ref HEAD)|branch1|branch2" | xargs git branch -D
