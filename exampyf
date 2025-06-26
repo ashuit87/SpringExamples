@@ -8,3 +8,16 @@
 <task:scheduled-tasks scheduler="customTaskScheduler">
     <task:scheduled ref="myScheduledTask" method="execute" fixed-delay="5000"/>
 </task:scheduled-tasks>
+
+
+
+public class LoggingErrorHandler implements ErrorHandler {
+
+    private static final Logger logger = LoggerFactory.getLogger(LoggingErrorHandler.class);
+
+    @Override
+    public void handleError(Throwable t) {
+        logger.error("Scheduled task error: ", t);
+    }
+}
+
