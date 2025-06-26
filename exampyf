@@ -6,3 +6,8 @@ public class ErrorHandlerFactory {
         return TaskUtils.LOG_AND_PROPAGATE_ERROR_HANDLER;
     }
 }
+
+
+bean id="logAndPropagateErrorHandler"
+      class="com.example.ErrorHandlerFactory"
+      factory-method="logAndPropagate" />
