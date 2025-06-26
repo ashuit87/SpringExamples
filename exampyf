@@ -1,13 +1,10 @@
-import org.springframework.scheduling.support.TaskUtils;
-import org.springframework.util.ErrorHandler;
+<bean id="loggingErrorHandler" class="com.example.LoggingErrorHandler" />
 
-public class ErrorHandlerFactory {
-    public static ErrorHandler logAndPropagate() {
-        return TaskUtils.LOG_AND_PROPAGATE_ERROR_HANDLER;
-    }
-}
+<bean id="customTaskScheduler" class="org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler">
+    <property name="poolSize" value="5"/>
+    <property name="errorHandler" ref="loggingErrorHandler"/>
+</bean>
 
-
-bean id="logAndPropagateErrorHandler"
-      class="com.example.ErrorHandlerFactory"
-      factory-method="logAndPropagate" />
+<task:scheduled-tasks scheduler="customTaskScheduler">
+    <task:scheduled ref="myScheduledTask" method="execute" fixed-delay="5000"/>
+</task:scheduled-tasks>
