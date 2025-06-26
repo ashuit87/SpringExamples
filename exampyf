@@ -1,30 +1,8 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<beans xmlns="http://www.springframework.org/schema/beans"
-       xmlns:task="http://www.springframework.org/schema/task"
-       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-       xsi:schemaLocation="
-           http://www.springframework.org/schema/beans 
-           http://www.springframework.org/schema/beans/spring-beans.xsd
-           http://www.springframework.org/schema/task 
-           http://www.springframework.org/schema/task/spring-task.xsd">
+import org.springframework.scheduling.support.TaskUtils;
+import org.springframework.util.ErrorHandler;
 
-    <!-- Define built-in error handler -->
-    <bean id="logAndPropagateErrorHandler"
-          class="org.springframework.scheduling.support.TaskUtils"
-          factory-method="LOG_AND_PROPAGATE_ERROR_HANDLER" />
-
-    <!-- Task scheduler bean with error handler -->
-    <bean id="customTaskScheduler" class="org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler">
-        <property name="poolSize" value="2"/>
-        <property name="errorHandler" ref="logAndPropagateErrorHandler"/>
-    </bean>
-
-    <!-- Scheduled task bean -->
-    <bean id="myScheduledTask" class="com.example.MyScheduledTask" />
-
-    <!-- Task scheduling config -->
-    <task:scheduled-tasks scheduler="customTaskScheduler">
-        <task:scheduled ref="myScheduledTask" method="execute" fixed-delay="5000" />
-    </task:scheduled-tasks>
-
-</beans>
+public class ErrorHandlerFactory {
+    public static ErrorHandler logAndPropagate() {
+        return TaskUtils.LOG_AND_PROPAGATE_ERROR_HANDLER;
+    }
+}
