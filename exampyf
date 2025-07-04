@@ -1,23 +1,28 @@
-<bean id="loggingErrorHandler" class="com.example.LoggingErrorHandler" />
+Option 1: Using SSH (Recommended)
+Generate SSH key (if not already):
 
-<bean id="customTaskScheduler" class="org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler">
-    <property name="poolSize" value="5"/>
-    <property name="errorHandler" ref="loggingErrorHandler"/>
-</bean>
+bash
+Copy
+Edit
+ssh-keygen -t ed25519 -C "youremail@example.com"
+Add the SSH key to your SSH agent:
 
-<task:scheduled-tasks scheduler="customTaskScheduler">
-    <task:scheduled ref="myScheduledTask" method="execute" fixed-delay="5000"/>
-</task:scheduled-tasks>
+bash
+Copy
+Edit
+eval "$(ssh-agent -s)"
+ssh-add ~/.ssh/id_ed25519
+Copy the key:
 
+bash
+Copy
+Edit
+clip < ~/.ssh/id_ed25519.pub
+Go to GitHub > Settings > SSH and GPG keys, click New SSH key, paste it.
 
+Test the connection:
 
-public class LoggingErrorHandler implements ErrorHandler {
-
-    private static final Logger logger = LoggerFactory.getLogger(LoggingErrorHandler.class);
-
-    @Override
-    public void handleError(Throwable t) {
-        logger.error("Scheduled task error: ", t);
-    }
-}
-
+bash
+Copy
+Edit
+ssh -T git@github.com
