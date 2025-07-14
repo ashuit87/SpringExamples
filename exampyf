@@ -1,28 +1,33 @@
-Option 1: Using SSH (Recommended)
-Generate SSH key (if not already):
+const BATCH_SIZE = 1000;
+let lastId = null;
 
-bash
-Copy
-Edit
-ssh-keygen -t ed25519 -C "youremail@example.com"
-Add the SSH key to your SSH agent:
+while (true) {
+  // Step 1: Get next batch of COMPLETED masterIds from collection1
+  const query = lastId ? { status: "COMPLETED", _id: { $gt: lastId } } : { status: "COMPLETED" };
+  const masterIdBatch = db.collection1
+    .find(query)
+    .sort({ _id: 1 })
+    .limit(BATCH_SIZE)
+    .map(doc => {
+      lastId = doc._id;
+      return doc.masterId;
+    });
 
-bash
-Copy
-Edit
-eval "$(ssh-agent -s)"
-ssh-add ~/.ssh/id_ed25519
-Copy the key:
+  if (masterIdBatch.length === 0) {
+    print("Finished processing all batches.");
+    break;
+  }
 
-bash
-Copy
-Edit
-clip < ~/.ssh/id_ed25519.pub
-Go to GitHub > Settings > SSH and GPG keys, click New SSH key, paste it.
+  // Step 2: Find matching docs in collection2
+  const docsToMove = db.collection2.find({ masterId: { $in: masterIdBatch } }).toArray();
 
-Test the connection:
+  if (docsToMove.length > 0) {
+    // Step 3: Insert into target collection
+    db.targetCollection.insertMany(docsToMove);
 
-bash
-Copy
-Edit
-ssh -T git@github.com
+    // Step 4: Delete from collection2
+    db.collection2.deleteMany({ masterId: { $in: masterIdBatch } });
+  }
+
+  print("Processed batch with masterIds count:", masterIdBatch.length);
+}
