@@ -1,33 +1,82 @@
-const BATCH_SIZE = 1000;
+const BATCH_SIZE = 500;
+
+const sourceMasterCollection = db.dbsync_queue;
+const sourceDataCollection = db.rule_inst_change;
+const targetDataCollection = db.rule_inst_change_history;
+const auditProcessCollection = db.automation_log_cleanup_queue;
+
 let lastId = null;
 
 while (true) {
-  // Step 1: Get next batch of COMPLETED masterIds from collection1
-  const query = lastId ? { status: "COMPLETED", _id: { $gt: lastId } } : { status: "COMPLETED" };
-  const masterIdBatch = db.collection1
+  let query = { status: "COMPLETED" };
+  if (lastId !== null) {
+    query._id = { $gt: lastId };
+  }
+
+  const masterIdBatch = sourceMasterCollection
     .find(query)
     .sort({ _id: 1 })
     .limit(BATCH_SIZE)
-    .map(doc => {
-      lastId = doc._id;
-      return doc.masterId;
-    });
+    .project({ masterRequestId: 1 })
+    .toArray();
 
-  if (masterIdBatch.length === 0) {
-    print("Finished processing all batches.");
+  if (!masterIdBatch || masterIdBatch.length === 0) {
+    print("No more batches to process. Done.");
+    console.log("No more batches to process. Done.");
     break;
   }
 
-  // Step 2: Find matching docs in collection2
-  const docsToMove = db.collection2.find({ masterId: { $in: masterIdBatch } }).toArray();
+  lastId = masterIdBatch[masterIdBatch.length - 1]._id;
 
-  if (docsToMove.length > 0) {
-    // Step 3: Insert into target collection
-    db.targetCollection.insertMany(docsToMove);
+  const masterRequestIds = masterIdBatch
+    .map(doc => doc.masterRequestId)
+    .filter(id => id !== null && id !== undefined)
+    .map(id => NumberLong(id));
 
-    // Step 4: Delete from collection2
-    db.collection2.deleteMany({ masterId: { $in: masterIdBatch } });
+  if (masterRequestIds.length === 0) {
+    print("Skipping batch: all masterRequestIds were null/undefined.");
+    console.log("Skipping batch: all masterRequestIds were null/undefined.");
+    continue;
   }
 
-  print("Processed batch with masterIds count:", masterIdBatch.length);
+  const docsToMove = sourceDataCollection
+    .find({ masterId: { $in: masterRequestIds } })
+    .toArray();
+
+  if (!docsToMove || docsToMove.length === 0) {
+    print(`No documents found in rule_inst_change for ${masterRequestIds.length} masterRequestIds.`);
+    console.log(`No documents found in rule_inst_change for ${masterRequestIds.length} masterRequestIds.`);
+    continue;
+  }
+
+  try {
+    const insertResult = targetDataCollection.insertMany(docsToMove);
+
+    if (insertResult.insertedCount === docsToMove.length) {
+      const deleteResult = sourceDataCollection.deleteMany({ masterId: { $in: masterRequestIds } });
+
+      masterRequestIds.forEach(masterRequestId => {
+        auditProcessCollection.updateOne(
+          { _id: masterRequestId },
+          { $set: { status: "COMPLETED" } }
+        );
+      });
+
+      const movedMasterIds = [...new Set(docsToMove.map(doc => doc.masterId))];
+
+      print(`Inserted/Deleted documents for masterIds: ${movedMasterIds.join(", ")}`);
+      console.log(`Inserted/Deleted documents for masterIds: ${movedMasterIds.join(", ")}`);
+
+      print(`Batch complete. Moved: ${docsToMove.length}, Deleted: ${deleteResult.deletedCount}, Status updated.`);
+      console.log(`Batch complete. Moved: ${docsToMove.length}, Deleted: ${deleteResult.deletedCount}, Status updated.`);
+    } else {
+      print(`Partial insert: ${insertResult.insertedCount}/${docsToMove.length}. Skipping delete and audit update.`);
+      console.log(`Partial insert: ${insertResult.insertedCount}/${docsToMove.length}. Skipping delete and audit update.`);
+    }
+  } catch (e) {
+    print(`Error during insert: ${e}`);
+    console.log(` Error during insert: ${e}`);
+    print(" Skipping delete and audit update to avoid data loss.");
+    console.log("Skipping delete and audit update to avoid data loss.");
+  }
 }
