@@ -14,10 +14,9 @@ while (true) {
   }
 
   const masterIdBatch = sourceMasterCollection
-    .find(query)
+    .find(query, { projection: { masterRequestId: 1 } })
     .sort({ _id: 1 })
     .limit(BATCH_SIZE)
-    .project({ masterRequestId: 1 })
     .toArray();
 
   if (!masterIdBatch || masterIdBatch.length === 0) {
