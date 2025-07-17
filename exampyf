@@ -1,81 +1,86 @@
 const BATCH_SIZE = 500;
 
-const sourceMasterCollection = db.dbsync_queue;
-const sourceDataCollection = db.rule_inst_change;
-const targetDataCollection = db.rule_inst_change_history;
-const auditProcessCollection = db.automation_log_cleanup_queue;
+const sourceMasterCollection = db.getCollection("dbsync_queue");
+const sourceDataCollection = db.getCollection("rule_inst_change");
+const targetDataCollection = db.getCollection("rule_inst_change_history");
+const auditProcessCollection = db.getCollection("automation_log_cleanup_queue");
 
 let lastId = null;
 
 while (true) {
-  let query = { status: "COMPLETED" };
-  if (lastId !== null) {
-    query._id = { $gt: lastId };
-  }
+  // Step 1: Fetch batch of masterRequestIds with status "COMPLETED"
+  const query = lastId
+    ? { status: "COMPLETED", _id: { $gt: lastId } }
+    : { status: "COMPLETED" };
 
-  const masterIdBatch = sourceMasterCollection
-    .find(query, { projection: { masterRequestId: 1 } })
+  const masterIdBatch = await sourceMasterCollection
+    .find(query)
     .sort({ _id: 1 })
     .limit(BATCH_SIZE)
+    .project({ masterRequestId: 1 })
     .toArray();
 
   if (!masterIdBatch || masterIdBatch.length === 0) {
-    print("No more batches to process. Done.");
-    console.log("No more batches to process. Done.");
+    print("All batches processed.");
     break;
   }
 
+  const masterRequestIds = masterIdBatch.map(doc => doc.masterRequestId).filter(Boolean);
   lastId = masterIdBatch[masterIdBatch.length - 1]._id;
 
-  const masterRequestIds = masterIdBatch
-    .map(doc => doc.masterRequestId)
-    .filter(id => id !== null && id !== undefined)
-    .map(id => NumberLong(id));
+  print(`Processing batch of ${masterRequestIds.length} masterRequestIds`);
+  console.log("Batch masterRequestIds:", masterRequestIds);
 
-  if (masterRequestIds.length === 0) {
-    print("Skipping batch: all masterRequestIds were null/undefined.");
-    console.log("Skipping batch: all masterRequestIds were null/undefined.");
-    continue;
-  }
+  if (masterRequestIds.length === 0) continue;
 
-  const docsToMove = sourceDataCollection
+  // Step 2: Fetch documents from sourceDataCollection with matching masterId
+  const docsToMove = await sourceDataCollection
     .find({ masterId: { $in: masterRequestIds } })
     .toArray();
 
   if (!docsToMove || docsToMove.length === 0) {
-    print(`No documents found in rule_inst_change for ${masterRequestIds.length} masterRequestIds.`);
-    console.log(`No documents found in rule_inst_change for ${masterRequestIds.length} masterRequestIds.`);
+    print("No matching documents found in rule_inst_change.");
     continue;
   }
 
-  try {
-    const insertResult = targetDataCollection.insertMany(docsToMove);
+  const idsToInsert = docsToMove.map(doc => doc._id);
 
-    if (insertResult.insertedCount === docsToMove.length) {
-      const deleteResult = sourceDataCollection.deleteMany({ masterId: { $in: masterRequestIds } });
+  // Step 3: Insert to targetDataCollection, skip duplicates
+  const bulkInsertOps = docsToMove.map(doc => ({
+    replaceOne: {
+      filter: { _id: doc._id },
+      replacement: doc,
+      upsert: true,
+    },
+  }));
 
-      masterRequestIds.forEach(masterRequestId => {
-        auditProcessCollection.updateOne(
-          { _id: masterRequestId },
-          { $set: { status: "COMPLETED" } }
-        );
-      });
+  const insertResult = await targetDataCollection.bulkWrite(bulkInsertOps, { ordered: false });
+  print(`Inserted or upserted ${insertResult.upsertedCount + insertResult.modifiedCount} documents into rule_inst_change_history`);
+  console.log("Inserted/upserted _ids:", idsToInsert);
 
-      const movedMasterIds = [...new Set(docsToMove.map(doc => doc.masterId))];
+  // Step 4: Delete from sourceDataCollection only if present in history
+  const historyDocs = await targetDataCollection
+    .find({ _id: { $in: idsToInsert } }, { projection: { _id: 1 } })
+    .toArray();
 
-      print(`Inserted/Deleted documents for masterIds: ${movedMasterIds.join(", ")}`);
-      console.log(`Inserted/Deleted documents for masterIds: ${movedMasterIds.join(", ")}`);
+  const historyIdSet = new Set(historyDocs.map(doc => doc._id.valueOf()));
 
-      print(`Batch complete. Moved: ${docsToMove.length}, Deleted: ${deleteResult.deletedCount}, Status updated.`);
-      console.log(`Batch complete. Moved: ${docsToMove.length}, Deleted: ${deleteResult.deletedCount}, Status updated.`);
-    } else {
-      print(`Partial insert: ${insertResult.insertedCount}/${docsToMove.length}. Skipping delete and audit update.`);
-      console.log(`Partial insert: ${insertResult.insertedCount}/${docsToMove.length}. Skipping delete and audit update.`);
-    }
-  } catch (e) {
-    print(`Error during insert: ${e}`);
-    console.log(` Error during insert: ${e}`);
-    print(" Skipping delete and audit update to avoid data loss.");
-    console.log("Skipping delete and audit update to avoid data loss.");
+  const idsToDelete = docsToMove
+    .map(doc => doc._id)
+    .filter(id => historyIdSet.has(id.valueOf()));
+
+  if (idsToDelete.length > 0) {
+    const deleteResult = await sourceDataCollection.deleteMany({ _id: { $in: idsToDelete } });
+    print(`Deleted ${deleteResult.deletedCount} documents from rule_inst_change`);
+    console.log("Deleted _ids:", idsToDelete);
+  } else {
+    print("No matching documents found in history to delete from rule_inst_change.");
   }
+
+  // Step 5: Update auditProcessCollection status to "COMPLETED"
+  const updateAuditResult = await auditProcessCollection.updateMany(
+    { masterRequestId: { $in: masterRequestIds } },
+    { $set: { status: "COMPLETED" } }
+  );
+  print(`Updated ${updateAuditResult.modifiedCount} documents in auditProcessCollection.`);
 }
