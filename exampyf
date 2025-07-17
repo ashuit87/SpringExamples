@@ -1,94 +1,49 @@
-const BATCH_SIZE = 500;
-
-const sourceMasterCollection = db.getCollection("dbsync_queue");
 const sourceDataCollection = db.getCollection("rule_inst_change");
 const targetDataCollection = db.getCollection("rule_inst_change_history");
-const auditProcessCollection = db.getCollection("automation_log_cleanup_queue");
 
+const BATCH_SIZE = 1000;
 let lastId = null;
+let totalDeleted = 0;
 
-function processBatch() {
-  const query = lastId
-    ? { status: "COMPLETED", _id: { $gt: lastId } }
-    : { status: "COMPLETED" };
-
-  sourceMasterCollection.find(query)
+while (true) {
+  const query = lastId ? { _id: { $gt: lastId } } : {};
+  const batch = sourceDataCollection
+    .find(query)
     .sort({ _id: 1 })
     .limit(BATCH_SIZE)
-    .projection({ masterRequestId: 1 })  // <- replaced `.project(...)` with `.projection(...)`
-    .toArray()
-    .then(masterIdBatch => {
-      if (!masterIdBatch || masterIdBatch.length === 0) {
-        print("All batches processed.");
-        return;
+    .toArray();
+
+  if (!batch || batch.length === 0) {
+    print("Deletion check completed.");
+    break;
+  }
+
+  const sourceIds = batch.map(doc => doc._id);
+  lastId = batch[batch.length - 1]._id;
+
+  // Find matching documents in the history collection
+  const historyIdsSet = new Set(
+    targetDataCollection
+      .find({ _id: { $in: sourceIds } })
+      .map(doc => doc._id.valueOf())
+  );
+
+  // Prepare delete operations only for those present in history
+  const deleteOps = batch
+    .filter(doc => historyIdsSet.has(doc._id.valueOf()))
+    .map(doc => ({
+      deleteOne: {
+        filter: { _id: doc._id }
       }
+    }));
 
-      const masterRequestIds = masterIdBatch.map(doc => doc.masterRequestId).filter(Boolean);
-      lastId = masterIdBatch[masterIdBatch.length - 1]._id;
-
-      print("Processing batch of masterRequestIds:");
-      print(masterRequestIds);
-
-      if (masterRequestIds.length === 0) {
-        processBatch();
-        return;
-      }
-
-      sourceDataCollection.find({ masterId: { $in: masterRequestIds } }).toArray()
-        .then(docsToMove => {
-          if (!docsToMove || docsToMove.length === 0) {
-            print("No matching documents found in rule_inst_change.");
-            processBatch();
-            return;
-          }
-
-          const idsToInsert = docsToMove.map(doc => doc._id);
-          const bulkInsertOps = docsToMove.map(doc => ({
-            replaceOne: {
-              filter: { _id: doc._id },
-              replacement: doc,
-              upsert: true
-            }
-          }));
-
-          targetDataCollection.bulkWrite(bulkInsertOps, { ordered: false })
-            .then(insertResult => {
-              print(`Inserted or upserted ${insertResult.upsertedCount + insertResult.modifiedCount} documents`);
-              print("Inserted/upserted _ids:");
-              print(idsToInsert);
-
-              targetDataCollection.find({ _id: { $in: idsToInsert } }, { projection: { _id: 1 } })
-                .toArray()
-                .then(historyDocs => {
-                  const historyIdSet = new Set(historyDocs.map(doc => doc._id.valueOf()));
-                  const idsToDelete = docsToMove
-                    .map(doc => doc._id)
-                    .filter(id => historyIdSet.has(id.valueOf()));
-
-                  if (idsToDelete.length > 0) {
-                    sourceDataCollection.deleteMany({ _id: { $in: idsToDelete } })
-                      .then(deleteResult => {
-                        print(`Deleted ${deleteResult.deletedCount} documents from rule_inst_change`);
-                        print("Deleted _ids:");
-                        print(idsToDelete);
-
-                        auditProcessCollection.updateMany(
-                          { masterRequestId: { $in: masterRequestIds } },
-                          { $set: { status: "COMPLETED" } }
-                        ).then(updateResult => {
-                          print(`Updated ${updateResult.modifiedCount} auditProcess records`);
-                          processBatch();
-                        });
-                      });
-                  } else {
-                    print("No matching documents found in history to delete.");
-                    processBatch();
-                  }
-                });
-            });
-        });
-    });
+  if (deleteOps.length > 0) {
+    const result = sourceDataCollection.bulkWrite(deleteOps);
+    totalDeleted += result.deletedCount;
+    print("Deleted", result.deletedCount, "documents in this batch.");
+  } else {
+    print("No deletions required in this batch.");
+  }
 }
 
-// Start the process
-processBatch();
+print("Total documents deleted from rule_inst_change:", totalDeleted);
