@@ -1,106 +1,26 @@
-const BATCH_SIZE = 500;
-let lastId = null;
-let processed = 0;
-
-while (true) {
-  // Step 1: Get masterRequestIds from dbsync_queue + master_change_request
-  const masterIdBatch = db.dbsync_queue.aggregate([
-    ...(lastId ? [{ $match: { status: "COMPLETED", masterRequestId: { $gt: lastId } } }] : [{ $match: { status: "COMPLETED" } }]),
-    { $sort: { masterRequestId: 1 } },
-    { $limit: BATCH_SIZE },
-    { $project: { masterRequestId: 1, _id: 0 } },
-    {
-      $unionWith: {
-        coll: "master_change_request",
-        pipeline: [
-          { $match: { merge_request: { $in: ["MERGE_COMPLETED", "REPLICATION_COMPLETED"] } } },
-          {
-            $lookup: {
-              from: "dbsync_queue",
-              localField: "_id",
-              foreignField: "masterRequestId",
-              as: "in_queue"
-            }
-          },
-          { $match: { in_queue: { $eq: [] } } },
-          { $sort: { _id: 1 } },
-          { $limit: BATCH_SIZE },
-          { $project: { masterRequestId: "$_id", _id: 0 } }
-        ]
-      }
-    },
-    { $sort: { masterRequestId: 1 } },
-    { $limit: BATCH_SIZE }
-  ]).toArray();
-
-  if (!masterIdBatch.length) {
-    print("✅ All records processed.");
-    break;
+// Step 1: Get all unique mapDefIds from your masterDocs
+const mapDefIdSet = new Set();
+masterDocs.forEach(doc => {
+  if (doc.updatedMaps && doc.updatedMaps.length > 0) {
+    mapDefIdSet.add(doc.updatedMaps[0].toString());  // use toString for Set consistency
   }
+});
 
-  const masterIds = masterIdBatch.map(d => d.masterRequestId);
-  print("🔁 Processing batch: " + masterIds.join(", "));
+const mapDefIdArray = Array.from(mapDefIdSet).map(x => NumberLong(x));
 
-  // Step 2: Fetch documents to move
-  const docsToMove = db.rule_inst_change.find({ masterRequestId: { $in: masterIds } }).toArray();
+// Step 2: Query rule_def to get enableDbSync map
+const ruleMap = {};  // mapDefId -> enableDbSync
+db.rule_def.find({ mapDefId: { $in: mapDefIdArray } }).forEach(rule => {
+  ruleMap[rule.mapDefId.toString()] = rule.enableDbSync;
+});
 
-  if (!docsToMove.length) {
-    print("❌ No documents to move for this batch.");
-    lastId = masterIds[masterIds.length - 1];
-    continue;
-  }
+// Step 3: Filter masterDocs where enableDbSync is false
+const matchedMasterIds = masterDocs
+  .filter(doc => {
+    const mapDefId = doc.updatedMaps[0];
+    const sync = ruleMap[mapDefId.toString()];
+    return sync === false;
+  })
+  .map(doc => doc._id);
 
-  // Step 3: Insert into history collection (ignore duplicates)
-  const bulkInsert = db.rule_inst_change_history.initializeUnorderedBulkOp();
-  const insertedIdsMap = {};
-
-  docsToMove.forEach(doc => {
-    bulkInsert.insert(doc);
-    insertedIdsMap[doc._id.valueOf()] = doc.masterRequestId;
-  });
-
-  try {
-    bulkInsert.execute();
-    print("✅ Inserted to rule_inst_change_history");
-  } catch (e) {
-    if (e.code === 11000) {
-      print("⚠️ Duplicate key error(s) during insert, continuing...");
-    } else {
-      print("❌ Insert error: " + e);
-    }
-  }
-
-  // Step 4: Delete from source only if same _id exists in history
-  const historyIds = db.rule_inst_change_history
-    .find({ _id: { $in: docsToMove.map(d => d._id) } })
-    .project({ _id: 1 })
-    .toArray()
-    .map(doc => doc._id);
-
-  if (historyIds.length) {
-    const bulkDelete = db.rule_inst_change.initializeUnorderedBulkOp();
-    historyIds.forEach(id => {
-      bulkDelete.find({ _id: id }).remove();
-    });
-    bulkDelete.execute();
-    print("🗑️ Deleted from rule_inst_change: " + historyIds.length);
-  }
-
-  // Step 5: Update auditProcessCollection
-  const auditBulk = db.automation_log_cleanup_queue.initializeUnorderedBulkOp();
-  const auditIds = [...new Set(Object.values(insertedIdsMap))];
-
-  auditIds.forEach(masterId => {
-    auditBulk.find({ masterRequestId: masterId }).update({ $set: { status: "COMPLETED" } });
-  });
-
-  if (auditIds.length) {
-    auditBulk.execute();
-    print("📌 Updated automation_log_cleanup_queue for: " + auditIds.join(", "));
-  }
-
-  // Step 6: Prepare for next batch
-  lastId = masterIds[masterIds.length - 1];
-  processed += masterIds.length;
-  print("✅ Batch done. Processed total: " + processed);
-}
+printjson(matchedMasterIds);
