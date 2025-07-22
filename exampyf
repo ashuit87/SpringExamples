@@ -1,22 +1,14 @@
-const batchSize = 10000;
-let lastId = null;
-
-while (true) {
-  const batch = lastId
-    ? db.sourceCollection.find({ _id: { $gt: lastId } }).sort({ _id: 1 }).limit(batchSize).toArray()
-    : db.sourceCollection.find().sort({ _id: 1 }).limit(batchSize).toArray();
-
-  if (batch.length === 0) break;
-
-  lastId = batch[batch.length - 1]._id;
-
-  db.targetCollection.bulkWrite(
-    batch.map(doc => ({
-      replaceOne: {
-        filter: { _id: doc._id },
-        replacement: doc,
-        upsert: true
-      }
-    }))
-  );
-}
+db.yourCollection.aggregate([
+  {
+    $group: {
+      _id: "$masterId",
+      count: { $sum: 1 }
+    }
+  },
+  {
+    $sort: { count: -1 }  // sort by count descending
+  },
+  {
+    $limit: 10            // get top 10
+  }
+])
