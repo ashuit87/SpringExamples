@@ -1,11 +1,22 @@
-db.sourceCollection.aggregate([
-  { $match: {} },  // optional filter, use {} to copy all
-  {
-    $merge: {
-      into: "targetCollection",
-      on: "_id",  // default, can be omitted if using _id
-      whenMatched: "replace",        // overwrite if exists
-      whenNotMatched: "insert"       // insert if not exists
-    }
-  }
-]);
+const batchSize = 10000;
+let lastId = null;
+
+while (true) {
+  const batch = lastId
+    ? db.sourceCollection.find({ _id: { $gt: lastId } }).sort({ _id: 1 }).limit(batchSize).toArray()
+    : db.sourceCollection.find().sort({ _id: 1 }).limit(batchSize).toArray();
+
+  if (batch.length === 0) break;
+
+  lastId = batch[batch.length - 1]._id;
+
+  db.targetCollection.bulkWrite(
+    batch.map(doc => ({
+      replaceOne: {
+        filter: { _id: doc._id },
+        replacement: doc,
+        upsert: true
+      }
+    }))
+  );
+}
