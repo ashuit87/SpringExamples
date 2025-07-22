@@ -1,26 +1,11 @@
-// Step 1: Get all unique mapDefIds from your masterDocs
-const mapDefIdSet = new Set();
-masterDocs.forEach(doc => {
-  if (doc.updatedMaps && doc.updatedMaps.length > 0) {
-    mapDefIdSet.add(doc.updatedMaps[0].toString());  // use toString for Set consistency
+db.sourceCollection.aggregate([
+  { $match: {} },  // optional filter, use {} to copy all
+  {
+    $merge: {
+      into: "targetCollection",
+      on: "_id",  // default, can be omitted if using _id
+      whenMatched: "replace",        // overwrite if exists
+      whenNotMatched: "insert"       // insert if not exists
+    }
   }
-});
-
-const mapDefIdArray = Array.from(mapDefIdSet).map(x => NumberLong(x));
-
-// Step 2: Query rule_def to get enableDbSync map
-const ruleMap = {};  // mapDefId -> enableDbSync
-db.rule_def.find({ mapDefId: { $in: mapDefIdArray } }).forEach(rule => {
-  ruleMap[rule.mapDefId.toString()] = rule.enableDbSync;
-});
-
-// Step 3: Filter masterDocs where enableDbSync is false
-const matchedMasterIds = masterDocs
-  .filter(doc => {
-    const mapDefId = doc.updatedMaps[0];
-    const sync = ruleMap[mapDefId.toString()];
-    return sync === false;
-  })
-  .map(doc => doc._id);
-
-printjson(matchedMasterIds);
+]);
