@@ -1,14 +1,22 @@
-db.yourCollection.aggregate([
-  {
-    $group: {
-      _id: "$masterId",
-      count: { $sum: 1 }
-    }
-  },
-  {
-    $sort: { count: -1 }  // sort by count descending
-  },
-  {
-    $limit: 10            // get top 10
-  }
-])
+<dependency>
+  <groupId>jakarta.servlet</groupId>
+  <artifactId>jakarta.servlet-api</artifactId>
+  <version>6.0.0</version> <!-- or higher -->
+  <scope>provided</scope>
+</dependency>
+
+
+<packaging>war</packaging>
+
+
+
+<dependency>
+  <groupId>org.springframework.boot</groupId>
+  <artifactId>spring-boot-starter-web</artifactId>
+  <exclusions>
+    <exclusion>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-tomcat</artifactId>
+    </exclusion>
+  </exclusions>
+</dependency>
