@@ -1,38 +1,43 @@
-OLDER:
+const BATCH_SIZE = 500;
+let skip = 0;
+let batch = [];
 
-public class MyActor extends UntypedActor {
-    @Override
-    public void onReceive(Object message) throws Throwable {
-        if (message instanceof String) {
-            System.out.println("Received String message: " + message);
-        } else {
-            unhandled(message);
+while (true) {
+  batch = db.automation
+    .find({}, { _id: 1 }) // only fetch _id
+    .skip(skip)
+    .limit(BATCH_SIZE)
+    .toArray();
+
+  if (batch.length === 0) break;
+
+  const batchIds = batch.map(doc => doc._id);
+
+  // Find which of those exist in masterId collection
+  const existingIds = new Set(
+    db.masterId.find({ _id: { $in: batchIds } }, { _id: 1 })
+      .map(doc => doc._id.valueOf())
+  );
+
+  // Find missing ones
+  const missingIds = batchIds.filter(
+    id => !existingIds.has(id.valueOf())
+  );
+
+  if (missingIds.length > 0) {
+    // Update all missing IDs in automation
+    db.automation.updateMany(
+      { _id: { $in: missingIds } },
+      {
+        $set: {
+          status: "FAILED",
+          message: "failed due to not present"
         }
-    }
-}
+      }
+    );
+  }
 
-NEW APPROACH:
+  print(`Processed batch of ${batch.length}, updated ${missingIds.length} documents.`);
 
-import akka.actor.AbstractActor;
-import akka.actor.Props;
-
-public class MyActor extends AbstractActor {
-
-    // Define message handling
-    @Override
-    public Receive createReceive() {
-        return receiveBuilder()
-            .match(String.class, message -> {
-                System.out.println("Received String message: " + message);
-            })
-            .matchAny(message -> {
-                unhandled(message);
-            })
-            .build();
-    }
-
-    // Optional: Define how to create the actor
-    public static Props props() {
-        return Props.create(MyActor.class);
-    }
+  skip += BATCH_SIZE;
 }
