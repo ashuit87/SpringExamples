@@ -14,10 +14,14 @@ while (true) {
   const batchIds = batch.map(doc => doc._id);
 
   // Find which of those exist in masterId collection
-  const existingIds = new Set(
-    db.masterId.find({ _id: { $in: batchIds } }, { _id: 1 })
-      .map(doc => doc._id.valueOf())
-  );
+  const foundDocs = db.masterId.find(
+  { _id: { $in: batchIds } },
+  { _id: 1 }
+).toArray(); // ✅ convert cursor to array
+
+const existingIds = new Set(
+  foundDocs.map(doc => doc._id.valueOf())
+);
 
   // Find missing ones
   const missingIds = batchIds.filter(
