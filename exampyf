@@ -19,14 +19,11 @@ while (true) {
   { _id: 1 }
 ).toArray(); // ✅ convert cursor to array
 
-const existingIds = new Set(
-  foundDocs.map(doc => doc._id.valueOf())
-);
+// 🔐 Convert to Set of strings
+  const existingIds = new Set(foundDocs.map(doc => doc._id + ''));
 
-  // Find missing ones
-  const missingIds = batchIds.filter(
-    id => !existingIds.has(id.valueOf())
-  );
+  // 🔍 Match using string representation of _id
+  const missingIds = batchIds.filter(id => !existingIds.has(id + ''));
 
   if (missingIds.length > 0) {
     // Update all missing IDs in automation
