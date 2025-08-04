@@ -117,15 +117,10 @@ import javax.cache.Caching;
 import javax.cache.spi.CachingProvider;
 import java.net.URI;
 
-@Configuration
-@EnableCaching
-public class CacheConfig {
-
-    @Bean
-    public CacheManager cacheManager() throws Exception {
-        CachingProvider provider = Caching.getCachingProvider();
-        URI uri = getClass().getResource("/ehcache.xml").toURI();
-        javax.cache.CacheManager jCacheManager = provider.getCacheManager(uri, getClass().getClassLoader());
-        return new JCacheCacheManager(jCacheManager);
+public org.springframework.cache.CacheManager cacheManager() {
+        URL configUrl = getClass().getResource("/ehcache.xml");
+        XmlConfiguration xmlConfig = new XmlConfiguration(configUrl);
+        CacheManager ehcacheManager = CacheManagerBuilder.newCacheManager(xmlConfig);
+        ehcacheManager.init();
+        return new EhCacheCacheManager(new net.sf.ehcache.CacheManager(configUrl)); // Adapter for Spring
     }
-}
