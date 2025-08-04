@@ -1,50 +1,12 @@
-const BATCH_SIZE = 500;
-let lastId = null;
+<config xmlns:xsi='http://www.w3.org/2001/XMLSchema-instance'
+        xmlns='http://www.ehcache.org/v3'
+        xsi:schemaLocation="http://www.ehcache.org/v3 http://www.ehcache.org/schema/ehcache-core.xsd">
+  
+  <cache alias="defaultCache">
+    <heap unit="entries">500</heap>
+    <expiry>
+      <ttl unit="minutes">10</ttl>
+    </expiry>
+  </cache>
 
-while (true) {
-  const query = lastId
-    ? { _id: { $gt: lastId } }
-    : {}; // no filter on first run
-
-  // Always sort by _id for correct pagination
-  const batch = db.automation
-    .find(query, { _id: 1, status: 1 })
-    .sort({ _id: 1 })
-    .limit(BATCH_SIZE)
-    .toArray();
-
-  if (batch.length === 0) break;
-
-  // Filter inside batch (instead of query)
-  const filteredBatch = batch.filter(doc =>
-    ["NEW", "IN_PROGRESS"].includes(doc.status)
-  );
-
-  const batchIds = filteredBatch.map(doc => doc._id);
-
-  if (batchIds.length > 0) {
-    const foundDocs = db.masterId
-      .find({ _id: { $in: batchIds } }, { _id: 1 })
-      .toArray();
-
-    const existingIds = new Set(foundDocs.map(doc => doc._id + ''));
-    const missingIds = batchIds.filter(id => !existingIds.has(id + ''));
-
-    if (missingIds.length > 0) {
-      db.automation.updateMany(
-        { _id: { $in: missingIds } },
-        {
-          $set: {
-            status: "FAILED",
-            message: "failed due to not present"
-          }
-        }
-      );
-    }
-
-    print(`Filtered ${filteredBatch.length} docs, updated ${missingIds.length} as FAILED.`);
-  }
-
-  // Always update lastId from the full batch, not just filtered ones
-  lastId = batch[batch.length - 1]._id;
-}
+</config>
