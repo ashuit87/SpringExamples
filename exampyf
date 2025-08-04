@@ -1,126 +1,25 @@
-<dependencies>
-  <!-- Spring Boot Starter -->
-  <dependency>
-    <groupId>org.springframework.boot</groupId>
-    <artifactId>spring-boot-starter</artifactId>
-  </dependency>
-
-  <!-- Spring Cache -->
-  <dependency>
-    <groupId>org.springframework.boot</groupId>
-    <artifactId>spring-boot-starter-cache</artifactId>
-  </dependency>
-
-  <!-- Ehcache 3.x -->
-  <dependency>
-    <groupId>org.ehcache</groupId>
-    <artifactId>ehcache</artifactId>
-    <version>3.10.8</version>
-  </dependency>
-
-  <!-- JCache binding for Ehcache -->
-  <dependency>
-    <groupId>org.ehcache</groupId>
-    <artifactId>ehcache-jcache</artifactId>
-    <version>3.10.8</version>
-  </dependency>
-
-  <!-- Micrometer Core -->
-  <dependency>
-    <groupId>io.micrometer</groupId>
-    <artifactId>micrometer-core</artifactId>
-  </dependency>
-
-  <!-- Spring Boot Actuator (for metrics) -->
-  <dependency>
-    <groupId>org.springframework.boot</groupId>
-    <artifactId>spring-boot-starter-actuator</artifactId>
-  </dependency>
-
-  <!-- Micrometer Prometheus (optional if you're using Prometheus) -->
-  <dependency>
-    <groupId>io.micrometer</groupId>
-    <artifactId>micrometer-registry-prometheus</artifactId>
-  </dependency>
-</dependencies>
-
-<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-        xmlns="http://www.ehcache.org/v3"
-        xsi:schemaLocation="http://www.ehcache.org/v3 http://www.ehcache.org/schema/ehcache-core-3.10.xsd">
-
-    <cache-template name="defaultCache">
-        <key-type>java.lang.Object</key-type>
-        <value-type>java.lang.Object</value-type>
-        <expiry>
-            <ttl unit="seconds">3600</ttl> <!-- Example: Time-to-Live of 1 hour -->
-        </expiry>
-        <resources>
-            <heap unit="entries">1000</heap> <!-- Example: Max 1000 entries in heap -->
-            <offheap unit="MB">10</offheap> <!-- Example: 10MB off-heap -->
-        </resources>
-    </cache-template>
-
-    <cache alias="myCache" uses-template="defaultCache">
-        <!-- You can override template properties or add more specific configurations here -->
-        <key-type>java.lang.String</key-type>
-        <value-type>java.lang.Integer</value-type>
-    </cache>
-
-    <cache alias="anotherCache">
-        <key-type>java.lang.Long</key-type>
-        <value-type>java.lang.String</value-type>
-        <expiry>
-            <tti unit="minutes">5</tti> <!-- Example: Time-to-Idle of 5 minutes -->
-        </expiry>
-        <resources>
-            <heap unit="entries">500</heap>
-        </resources>
-    </cache>
-
-</config>
-
-
-<?xml version="1.0" encoding="UTF-8"?>
-<config
-    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-    xmlns="http://www.ehcache.org/v3"
-    xmlns:jsr107="http://www.ehcache.org/v3/jsr107"
-    xsi:schemaLocation="
-        http://www.ehcache.org/v3 http://www.ehcache.org/schema/ehcache-core.xsd
-        http://www.ehcache.org/v3/jsr107 http://www.ehcache.org/schema/ehcache-107-ext.xsd">
-
-  <cache alias="myCache">
-    <key-type>java.lang.String</key-type>
-    <value-type>java.lang.String</value-type>
-    <expiry>
-      <ttl unit="minutes">5</ttl>
-    </expiry>
-    <resources>
-      <heap unit="entries">1000</heap>
-    </resources>
-  </cache>
-
-  <jsr107:defaults enable-management="true" enable-statistics="true"/>
-</config>
-
-
-
 package com.example.demo.config;
 
+import org.ehcache.config.builders.CacheManagerBuilder;
+import org.ehcache.xml.XmlConfiguration;
+import org.ehcache.CacheManager;
 import org.springframework.cache.annotation.EnableCaching;
-import org.springframework.cache.CacheManager;
-import org.springframework.cache.jcache.JCacheCacheManager;
+import org.springframework.cache.ehcache.EhCacheCacheManager;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-import javax.cache.Caching;
-import javax.cache.spi.CachingProvider;
-import java.net.URI;
+import java.net.URL;
 
-public org.springframework.cache.CacheManager cacheManager() {
+@Configuration
+@EnableCaching
+public class CacheConfig {
+
+    @Bean
+    public org.springframework.cache.CacheManager cacheManager() {
         URL configUrl = getClass().getResource("/ehcache.xml");
         XmlConfiguration xmlConfig = new XmlConfiguration(configUrl);
         CacheManager ehcacheManager = CacheManagerBuilder.newCacheManager(xmlConfig);
         ehcacheManager.init();
         return new EhCacheCacheManager(new net.sf.ehcache.CacheManager(configUrl)); // Adapter for Spring
     }
+}
