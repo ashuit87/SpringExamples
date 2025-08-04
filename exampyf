@@ -1,46 +1,34 @@
-<dependency>
-    <groupId>org.springframework.boot</groupId>
-    <artifactId>spring-boot-starter-cache</artifactId>
-</dependency>
+<web-app xmlns="https://jakarta.ee/xml/ns/jakartaee"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="https://jakarta.ee/xml/ns/jakartaee
+                             https://jakarta.ee/xml/ns/jakartaee/web-app_5_0.xsd"
+         version="5.0">
 
-dependency>
-    <groupId>javax.cache</groupId>
-    <artifactId>cache-api</artifactId>
-    <version>1.1.1</version>
-</dependency>
+    <display-name>My Spring Boot WAR</display-name>
 
-<dependency>
-    <groupId>org.ehcache</groupId>
-    <artifactId>ehcache</artifactId>
-    <version>3.10.8</version>
-</dependency>
+    <!-- Context loader -->
+    <context-param>
+        <param-name>contextConfigLocation</param-name>
+        <param-value>/WEB-INF/applicationContext.xml</param-value>
+    </context-param>
 
+    <listener>
+        <listener-class>org.springframework.web.context.ContextLoaderListener</listener-class>
+    </listener>
 
+    <!-- Dispatcher servlet -->
+    <servlet>
+        <servlet-name>dispatcher</servlet-name>
+        <servlet-class>org.springframework.web.servlet.DispatcherServlet</servlet-class>
+        <init-param>
+            <param-name>contextConfigLocation</param-name>
+            <param-value>/WEB-INF/dispatcher-servlet.xml</param-value>
+        </init-param>
+        <load-on-startup>1</load-on-startup>
+    </servlet>
 
-package com.example.demo.config;
-
-import org.ehcache.jsr107.EhcacheCachingProvider;
-import org.ehcache.xml.XmlConfiguration;
-import org.ehcache.CacheManager;
-import org.springframework.cache.annotation.EnableCaching;
-import org.springframework.cache.CacheManager as SpringCacheManager;
-import org.springframework.cache.jcache.JCacheCacheManager;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
-
-import javax.cache.Caching;
-import javax.cache.spi.CachingProvider;
-import java.net.URL;
-
-@Configuration
-@EnableCaching
-public class CacheConfig {
-
-    @Bean
-    public SpringCacheManager cacheManager() {
-        URL configUrl = getClass().getResource("/ehcache.xml");
-        CachingProvider provider = Caching.getCachingProvider(EhcacheCachingProvider.class.getName());
-        javax.cache.CacheManager jCacheManager = provider.getCacheManager(configUrl, getClass().getClassLoader());
-        return new JCacheCacheManager(jCacheManager); // Spring wrapper for JSR-107-compatible cache manager
-    }
-}
+    <servlet-mapping>
+        <servlet-name>dispatcher</servlet-name>
+        <url-pattern>/</url-pattern>
+    </servlet-mapping>
+</web-app>
