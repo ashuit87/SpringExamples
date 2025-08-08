@@ -1,81 +1,16 @@
-package com.example.config;
+ <!-- Spring Context Loader using Java Config -->
+    <listener>
+        <listener-class>org.springframework.web.context.ContextLoaderListener</listener-class>
+    </listener>
 
-import java.util.Properties;
+    <!-- This tells Spring to use annotation-based Java config -->
+    <context-param>
+        <param-name>contextClass</param-name>
+        <param-value>org.springframework.web.context.support.AnnotationConfigWebApplicationContext</param-value>
+    </context-param>
 
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.beans.factory.config.PropertiesFactoryBean;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.ImportResource;
-import org.springframework.context.support.PropertySourcesPlaceholderConfigurer;
-import org.springframework.core.io.ClassPathResource;
-import org.springframework.core.io.Resource;
-
-import com.project.ApplicationProperties;
-
-@Configuration
-@ImportResource({
-    "classpath:dao.xml",
-    "classpath:scheduler.xml",
-    "classpath:other-config.xml"
-})
-public class AppConfig {
-
-    /**
-     * Injects logout_url from merged property files.
-     */
-    @Value("${logout_url}")
-    private String logoutUrl;
-
-    /**
-     * Replacement for the old ListFactoryBean in XML —
-     * returns the array of property file resources.
-     */
-    @Bean
-    public Resource[] propertyResources() {
-        String env = System.getProperty("ENV", "dev"); // default to dev
-        return new Resource[] {
-            new ClassPathResource("application.properties"),
-            new ClassPathResource("db.properties"),
-            new ClassPathResource("mail.properties"),
-            new ClassPathResource(env + "_SM.properties")
-        };
-    }
-
-    /**
-     * Replacement for the old PropertiesFactoryBean in XML —
-     * merges all the property files into a single Properties object.
-     */
-    @Bean
-    public PropertiesFactoryBean propertiesFactory() {
-        PropertiesFactoryBean factory = new PropertiesFactoryBean();
-        factory.setLocations(propertyResources());
-        return factory;
-    }
-
-    /**
-     * Enables resolution of ${...} placeholders in @Value and @PropertySource.
-     */
-    @Bean
-    public static PropertySourcesPlaceholderConfigurer propertyConfigurer(Resource[] propertyResources) {
-        PropertySourcesPlaceholderConfigurer configurer = new PropertySourcesPlaceholderConfigurer();
-        configurer.setLocations(propertyResources);
-        configurer.setIgnoreResourceNotFound(false);
-        configurer.setIgnoreUnresolvablePlaceholders(false);
-        return configurer;
-    }
-
-    /**
-     * Replacement for your XML:
-     * <bean id="myapplicationProp" class="com.project.ApplicationProperties">
-     *     <constructor-arg index="0" ref="propertiesFactory" />
-     *     <property name="logout_url" value="${logout_url}" />
-     * </bean>
-     */
-    @Bean
-    public ApplicationProperties myapplicationProp(Properties propertiesFactory) throws Exception {
-        ApplicationProperties appProps = new ApplicationProperties(propertiesFactory);
-        appProps.setLogout_url(logoutUrl);
-        return appProps;
-    }
-}
+    <!-- Point to your Java Config class -->
+    <context-param>
+        <param-name>contextConfigLocation</param-name>
+        <param-value>com.example.config.AppConfig</param-value>
+    </context-param>
