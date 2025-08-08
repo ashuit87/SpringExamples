@@ -1,9 +1,12 @@
 package com.example.config;
 
+import java.util.Arrays;
 import java.util.List;
 
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.annotation.*;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.ImportResource;
 import org.springframework.context.support.PropertySourcesPlaceholderConfigurer;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.core.io.Resource;
@@ -40,19 +43,29 @@ public class AppConfig {
         return configurer;
     }
 
-    // Inject logout_url from properties
+    // Inject logout_url from the loaded property files
     @Value("${logout_url}")
     private String logoutUrl;
 
-    // Inject property list if you want to keep it
-    @Value("#{'${property.files:}'.split(',')}")
-    private List<String> propertyList;
-
     /**
-     * Your original ApplicationProperties bean, now in Java config
+     * This bean builds the list of property file paths like your old <list merge="true"> in XML.
      */
     @Bean
-    public ApplicationProperties applicationProperties() {
+    public List<String> propertyList() {
+        String env = System.getProperty("ENV", "dev");
+        return Arrays.asList(
+            "classpath:application.properties",
+            "classpath:db.properties",
+            "classpath:mail.properties",
+            "classpath:" + env + "_SM.properties"
+        );
+    }
+
+    /**
+     * Your original ApplicationProperties bean, now in Java config.
+     */
+    @Bean
+    public ApplicationProperties applicationProperties(List<String> propertyList) {
         return new ApplicationProperties(propertyList, logoutUrl);
     }
 }
