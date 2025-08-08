@@ -1,8 +1,8 @@
 package com.example.config;
 
-import java.util.Arrays;
-import java.util.List;
+import java.util.Properties;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.beans.factory.config.PropertiesFactoryBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -10,6 +10,8 @@ import org.springframework.context.annotation.ImportResource;
 import org.springframework.context.support.PropertySourcesPlaceholderConfigurer;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.core.io.Resource;
+
+import com.project.ApplicationProperties;
 
 @Configuration
 @ImportResource({
@@ -20,24 +22,18 @@ import org.springframework.core.io.Resource;
 public class AppConfig {
 
     /**
-     * Loads properties into Spring's placeholder resolution system.
+     * Injects logout_url from merged property files.
      */
-    @Bean
-    public static PropertySourcesPlaceholderConfigurer propertyConfigurer() {
-        PropertySourcesPlaceholderConfigurer configurer = new PropertySourcesPlaceholderConfigurer();
-        configurer.setLocations(propertyResources());
-        configurer.setIgnoreResourceNotFound(false);
-        configurer.setIgnoreUnresolvablePlaceholders(false);
-        return configurer;
-    }
+    @Value("${logout_url}")
+    private String logoutUrl;
 
     /**
-     * This replaces ListFactoryBean — returns a list of Resources
-     * that other beans (like PropertiesFactoryBean) can use.
+     * Replacement for the old ListFactoryBean in XML —
+     * returns the array of property file resources.
      */
     @Bean
-    public static Resource[] propertyResources() {
-        String env = System.getProperty("ENV", "dev");
+    public Resource[] propertyResources() {
+        String env = System.getProperty("ENV", "dev"); // default to dev
         return new Resource[] {
             new ClassPathResource("application.properties"),
             new ClassPathResource("db.properties"),
@@ -47,13 +43,39 @@ public class AppConfig {
     }
 
     /**
-     * This replaces your old PropertiesFactoryBean, merging multiple
-     * .properties files into a single Properties object.
+     * Replacement for the old PropertiesFactoryBean in XML —
+     * merges all the property files into a single Properties object.
      */
     @Bean
-    public static PropertiesFactoryBean applicationProperties() {
+    public PropertiesFactoryBean propertiesFactory() {
         PropertiesFactoryBean factory = new PropertiesFactoryBean();
         factory.setLocations(propertyResources());
         return factory;
+    }
+
+    /**
+     * Enables resolution of ${...} placeholders in @Value and @PropertySource.
+     */
+    @Bean
+    public static PropertySourcesPlaceholderConfigurer propertyConfigurer(Resource[] propertyResources) {
+        PropertySourcesPlaceholderConfigurer configurer = new PropertySourcesPlaceholderConfigurer();
+        configurer.setLocations(propertyResources);
+        configurer.setIgnoreResourceNotFound(false);
+        configurer.setIgnoreUnresolvablePlaceholders(false);
+        return configurer;
+    }
+
+    /**
+     * Replacement for your XML:
+     * <bean id="myapplicationProp" class="com.project.ApplicationProperties">
+     *     <constructor-arg index="0" ref="propertiesFactory" />
+     *     <property name="logout_url" value="${logout_url}" />
+     * </bean>
+     */
+    @Bean
+    public ApplicationProperties myapplicationProp(Properties propertiesFactory) throws Exception {
+        ApplicationProperties appProps = new ApplicationProperties(propertiesFactory);
+        appProps.setLogout_url(logoutUrl);
+        return appProps;
     }
 }
