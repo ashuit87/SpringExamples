@@ -1,22 +1,58 @@
 package com.example.config;
 
-import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.ImportResource;
-import org.springframework.context.annotation.PropertySource;
+import java.util.List;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.*;
+import org.springframework.context.support.PropertySourcesPlaceholderConfigurer;
+import org.springframework.core.io.ClassPathResource;
+import org.springframework.core.io.Resource;
 
 @Configuration
-// Load property files
-@PropertySource({
-    "classpath:application.properties",
-    "classpath:db.properties",
-    "classpath:mail.properties"
-})
-// Import your existing XML configs
 @ImportResource({
-    "classpath:spring/dao-context.xml",
-    "classpath:spring/scheduler-context.xml",
-    "classpath:spring/service-context.xml"
+    "classpath:dao.xml",
+    "classpath:scheduler.xml",
+    "classpath:other-config.xml"
 })
 public class AppConfig {
-    // You can still define additional @Bean methods here if needed
+
+    /**
+     * Loads all property files, including environment-specific file.
+     * Environment is passed as -DENV=dev|qa|prod etc.
+     */
+    @Bean
+    public static PropertySourcesPlaceholderConfigurer propertyConfigurer() {
+        PropertySourcesPlaceholderConfigurer configurer = new PropertySourcesPlaceholderConfigurer();
+
+        String env = System.getProperty("ENV", "dev"); // default to dev if not set
+
+        Resource[] resources = new Resource[] {
+            new ClassPathResource("application.properties"),
+            new ClassPathResource("db.properties"),
+            new ClassPathResource("mail.properties"),
+            new ClassPathResource(env + "_SM.properties")
+        };
+
+        configurer.setLocations(resources);
+        configurer.setIgnoreResourceNotFound(false);
+        configurer.setIgnoreUnresolvablePlaceholders(false);
+
+        return configurer;
+    }
+
+    // Inject logout_url from properties
+    @Value("${logout_url}")
+    private String logoutUrl;
+
+    // Inject property list if you want to keep it
+    @Value("#{'${property.files:}'.split(',')}")
+    private List<String> propertyList;
+
+    /**
+     * Your original ApplicationProperties bean, now in Java config
+     */
+    @Bean
+    public ApplicationProperties applicationProperties() {
+        return new ApplicationProperties(propertyList, logoutUrl);
+    }
 }
