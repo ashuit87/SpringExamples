@@ -3,7 +3,7 @@ package com.example.config;
 import java.util.Arrays;
 import java.util.List;
 
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.config.PropertiesFactoryBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.ImportResource;
@@ -20,52 +20,40 @@ import org.springframework.core.io.Resource;
 public class AppConfig {
 
     /**
-     * Loads all property files, including environment-specific file.
-     * Environment is passed as -DENV=dev|qa|prod etc.
+     * Loads properties into Spring's placeholder resolution system.
      */
     @Bean
     public static PropertySourcesPlaceholderConfigurer propertyConfigurer() {
         PropertySourcesPlaceholderConfigurer configurer = new PropertySourcesPlaceholderConfigurer();
+        configurer.setLocations(propertyResources());
+        configurer.setIgnoreResourceNotFound(false);
+        configurer.setIgnoreUnresolvablePlaceholders(false);
+        return configurer;
+    }
 
-        String env = System.getProperty("ENV", "dev"); // default to dev if not set
-
-        Resource[] resources = new Resource[] {
+    /**
+     * This replaces ListFactoryBean — returns a list of Resources
+     * that other beans (like PropertiesFactoryBean) can use.
+     */
+    @Bean
+    public static Resource[] propertyResources() {
+        String env = System.getProperty("ENV", "dev");
+        return new Resource[] {
             new ClassPathResource("application.properties"),
             new ClassPathResource("db.properties"),
             new ClassPathResource("mail.properties"),
             new ClassPathResource(env + "_SM.properties")
         };
-
-        configurer.setLocations(resources);
-        configurer.setIgnoreResourceNotFound(false);
-        configurer.setIgnoreUnresolvablePlaceholders(false);
-
-        return configurer;
-    }
-
-    // Inject logout_url from the loaded property files
-    @Value("${logout_url}")
-    private String logoutUrl;
-
-    /**
-     * This bean builds the list of property file paths like your old <list merge="true"> in XML.
-     */
-    @Bean
-    public List<String> propertyList() {
-        String env = System.getProperty("ENV", "dev");
-        return Arrays.asList(
-            "classpath:application.properties",
-            "classpath:db.properties",
-            "classpath:mail.properties",
-            "classpath:" + env + "_SM.properties"
-        );
     }
 
     /**
-     * Your original ApplicationProperties bean, now in Java config.
+     * This replaces your old PropertiesFactoryBean, merging multiple
+     * .properties files into a single Properties object.
      */
     @Bean
-    public ApplicationProperties applicationProperties(List<String> propertyList) {
-        return new ApplicationProperties(propertyList, logoutUrl);
+    public static PropertiesFactoryBean applicationProperties() {
+        PropertiesFactoryBean factory = new PropertiesFactoryBean();
+        factory.setLocations(propertyResources());
+        return factory;
     }
 }
