@@ -1,9 +1,4 @@
-<bean id="jackson2ObjectMapperBuilder"
-      class="org.springframework.http.converter.json.Jackson2ObjectMapperBuilder"/>
-
-<bean id="objectMapper" factory-bean="jackson2ObjectMapperBuilder" factory-method="build"/>
-<alias name="objectMapper" alias="jacksonObjectMapper"/>
-
-
-spring.jackson.deserialization.ACCEPT_SINGLE_VALUE_AS_ARRAY=true
-spring.jackson.default-property-inclusion=non_empty
+exclude = {
+    org.springframework.boot.autoconfigure.jackson.JacksonAutoConfiguration.class,
+    org.springframework.boot.autoconfigure.http.HttpMessageConvertersAutoConfiguration.class
+  }
