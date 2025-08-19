@@ -1,4 +1,1 @@
-exclude = {
-    org.springframework.boot.autoconfigure.jackson.JacksonAutoConfiguration.class,
-    org.springframework.boot.autoconfigure.http.HttpMessageConvertersAutoConfiguration.class
-  }
+spring.autoconfigure.exclude=org.springframework.boot.autoconfigure.jackson.JacksonAutoConfiguration,org.springframework.boot.autoconfigure.http.JacksonHttpMessageConvertersConfiguration,org.springframework.boot.autoconfigure.http.HttpMessageConvertersAutoConfiguration
