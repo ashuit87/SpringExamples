@@ -1,7 +1,3 @@
-@Bean(destroyMethod = "close")
-    public org.ehcache.CacheManager ehcacheManager() {
-        XmlConfiguration xmlConfig = new XmlConfiguration(getClass().getResource("/ehcache.xml"));
-        org.ehcache.CacheManager cacheManager = CacheManagerBuilder.newCacheManager(xmlConfig);
-        cacheManager.init();
-        return cacheManager;
-    }
+Ehcache 2.x (net.sf.ehcache.CacheManager) is legacy and no longer supported in Spring Framework 6 / Boot 3.
+
+Ehcache 3.x works via JCache (javax.cache → jakarta.cache) integration, and Spring Boot only integrates it through JCacheCacheManager.
