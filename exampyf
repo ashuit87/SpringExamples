@@ -1,1 +1,16 @@
-spring.autoconfigure.exclude=org.springframework.boot.autoconfigure.jackson.JacksonAutoConfiguration,org.springframework.boot.autoconfigure.http.JacksonHttpMessageConvertersConfiguration,org.springframework.boot.autoconfigure.http.HttpMessageConvertersAutoConfiguration
+@Configuration
+public class CacheConfig {
+
+    @Bean
+    public jakarta.cache.CacheManager jCacheManager() throws Exception {
+        return Caching.getCachingProvider().getCacheManager(
+            getClass().getResource("/ehcache.xml").toURI(),
+            getClass().getClassLoader()
+        );
+    }
+
+    @Bean
+    public org.springframework.cache.CacheManager cacheManager(jakarta.cache.CacheManager jCacheManager) {
+        return new org.springframework.cache.jcache.JCacheCacheManager(jCacheManager);
+    }
+}
