@@ -1,2 +1,21 @@
-Use Ehcache 3 natively (no JCache / no jakarta.cache) and wrap it in Spring’s CacheManager.
-That way you can stay on Spring Boot 3.4.3 + Java 17 without pulling in jakarta.cache
+Why Ehcache 3 + Spring Boot needs Jakarta/Javax Cache (JSR-107)
+
+Spring Cache abstraction
+
+Spring Boot doesn’t talk directly to Ehcache classes (org.ehcache.CacheManager).
+
+Instead, it talks to a generic Spring CacheManager (org.springframework.cache.CacheManager), which can wrap different providers (Ehcache, Hazelcast, Redis, Caffeine, etc).
+
+Ehcache 3 design
+
+Ehcache 3’s core API is org.ehcache.CacheManager, Cache, etc.
+
+But for integration with external frameworks (Spring, JEE, Hibernate), Ehcache 3 implements the JSR-107 JCache API (javax.cache.CacheManager).
+
+That’s why Ehcache 3 ships with a JCache provider (org.ehcache.jsr107.EhcacheCachingProvider).
+
+Spring Boot integration path
+
+Spring Boot doesn’t ship a direct adapter for org.ehcache.CacheManager (that was for Ehcache 2).
+
+Instead, it supports Ehcache 3 via JCache → so you need a javax.cache.CacheManager exposed, which Spring wraps in JCacheCacheManager.
