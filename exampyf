@@ -1,16 +1,21 @@
+import org.ehcache.config.builders.CacheManagerBuilder;
+import org.ehcache.xml.XmlConfiguration;
+import org.ehcache.CacheManager;
+import org.springframework.cache.ehcache.EhCacheCacheManager;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
 @Configuration
 public class CacheConfig {
 
-    @Bean
-    public jakarta.cache.CacheManager jCacheManager() throws Exception {
-        return Caching.getCachingProvider().getCacheManager(
-            getClass().getResource("/ehcache.xml").toURI(),
-            getClass().getClassLoader()
-        );
+    @Bean(destroyMethod = "close")
+    public CacheManager ehcacheManager() {
+        XmlConfiguration xmlConfig = new XmlConfiguration(getClass().getResource("/ehcache.xml"));
+        return CacheManagerBuilder.newCacheManager(xmlConfig);
     }
 
     @Bean
-    public org.springframework.cache.CacheManager cacheManager(jakarta.cache.CacheManager jCacheManager) {
-        return new org.springframework.cache.jcache.JCacheCacheManager(jCacheManager);
+    public org.springframework.cache.CacheManager springCacheManager(CacheManager ehcacheManager) {
+        return new EhCacheCacheManager(ehcacheManager);
     }
 }
