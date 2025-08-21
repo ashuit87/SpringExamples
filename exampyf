@@ -1,3 +1,2 @@
-Ehcache 2.x (net.sf.ehcache.CacheManager) is legacy and no longer supported in Spring Framework 6 / Boot 3.
-
-Ehcache 3.x works via JCache (javax.cache → jakarta.cache) integration, and Spring Boot only integrates it through JCacheCacheManager.
+Use Ehcache 3 natively (no JCache / no jakarta.cache) and wrap it in Spring’s CacheManager.
+That way you can stay on Spring Boot 3.4.3 + Java 17 without pulling in jakarta.cache
