@@ -1,21 +1,15 @@
-Why Ehcache 3 + Spring Boot needs Jakarta/Javax Cache (JSR-107)
+The behavior change you’re seeing after upgrading from Spring 4.x → Spring Boot 3.4.3 (Spring Framework 6.x, Java 17) is related to Spring’s proxying mechanism. Let me explain:
 
-Spring Cache abstraction
+1. Why it worked in Spring 4.x
 
-Spring Boot doesn’t talk directly to Ehcache classes (org.ehcache.CacheManager).
+In Spring 4.x, when you defined a bean in applicationContext.xml using <bean class="..."/>, Spring by default created an instance directly (using reflection).
 
-Instead, it talks to a generic Spring CacheManager (org.springframework.cache.CacheManager), which can wrap different providers (Ehcache, Hazelcast, Redis, Caffeine, etc).
+If your class was final, that wasn’t a problem, because Spring wasn’t trying to subclass it.
 
-Ehcache 3 design
+2. Why it fails in Spring Boot 3.x
 
-Ehcache 3’s core API is org.ehcache.CacheManager, Cache, etc.
+Starting from Spring 5.x → 6.x, there is a much heavier use of proxy-based infrastructure (especially with @Configuration, @Transactional, @Async, AOP, etc.).
 
-But for integration with external frameworks (Spring, JEE, Hibernate), Ehcache 3 implements the JSR-107 JCache API (javax.cache.CacheManager).
+By default, Spring prefers CGLIB subclass-based proxies when applying advice (transaction management, security, etc.).
 
-That’s why Ehcache 3 ships with a JCache provider (org.ehcache.jsr107.EhcacheCachingProvider).
-
-Spring Boot integration path
-
-Spring Boot doesn’t ship a direct adapter for org.ehcache.CacheManager (that was for Ehcache 2).
-
-Instead, it supports Ehcache 3 via JCache → so you need a javax.cache.CacheManager exposed, which Spring wraps in JCacheCacheManager.
+CGLIB cannot subclass final classes → which is why you see the error asking you to remove final.
