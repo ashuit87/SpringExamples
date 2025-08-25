@@ -1,21 +1,27 @@
-<build>
-    <resources>
-        <resource>
-            <directory>src/main/resources</directory>
-            <filtering>true</filtering>
-        </resource>
-    </resources>
+@Configuration
+public class ServletConfig {
 
-    <plugins>
-        <plugin>
-            <groupId>org.apache.maven.plugins</groupId>
-            <artifactId>maven-resources-plugin</artifactId>
-            <version>3.3.1</version>
-            <configuration>
-                <delimiters>
-                    <delimiter>${*}</delimiter>
-                </delimiters>
-            </configuration>
-        </plugin>
-    </plugins>
-</build>
+    @Bean
+    public ServletRegistrationBean<HttpServlet> welcomeServlet() {
+        return new ServletRegistrationBean<>(
+            new DefaultServlet(), 
+            "/", "/home", "/dashboard"   // multiple URL patterns
+        );
+    }
+}
+
+
+@Configuration
+public class WebConfig implements WebMvcConfigurer {
+    @Override
+    public void addViewControllers(ViewControllerRegistry registry) {
+        registry.addViewController("/")
+                .setViewName("forward:/maphub-ui/index.html");
+
+        registry.addViewController("/home")
+                .setViewName("forward:/maphub-ui/index.html");
+
+        registry.addViewController("/dashboard")
+                .setViewName("forward:/maphub-ui/index.html");
+    }
+}
