@@ -1,15 +1,4 @@
-The behavior change you’re seeing after upgrading from Spring 4.x → Spring Boot 3.4.3 (Spring Framework 6.x, Java 17) is related to Spring’s proxying mechanism. Let me explain:
-
-1. Why it worked in Spring 4.x
-
-In Spring 4.x, when you defined a bean in applicationContext.xml using <bean class="..."/>, Spring by default created an instance directly (using reflection).
-
-If your class was final, that wasn’t a problem, because Spring wasn’t trying to subclass it.
-
-2. Why it fails in Spring Boot 3.x
-
-Starting from Spring 5.x → 6.x, there is a much heavier use of proxy-based infrastructure (especially with @Configuration, @Transactional, @Async, AOP, etc.).
-
-By default, Spring prefers CGLIB subclass-based proxies when applying advice (transaction management, security, etc.).
-
-CGLIB cannot subclass final classes → which is why you see the error asking you to remove final.
+Application   : ${application.version}
+Spring Boot   : ${spring-boot.version}
+Spring        : ${spring.version}
+JDK           : ${java.version}
