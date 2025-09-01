@@ -1,26 +1,5 @@
-Spring Framework 4.x + Jackson 2.12.6.1
-Jackson was more forgiving and often fell back to java.util.Date parsing using the JDK’s default DateFormat — so MM/dd/yyyy worked out of the box.
+ // Set global date format
+        mapper.setDateFormat(new SimpleDateFormat("MM/dd/yyyy"));
 
-Spring Boot 3.x + Jackson 2.18.2
-Jackson dropped that fallback behavior.
-Now it only accepts ISO-8601 (yyyy-MM-dd) by default unless you explicitly tell it otherwise.
-That’s why your MM/dd/yyyy format, which used to “just work,” is now rejected with JsonParseError.
-
-
-
-@Configuration
-public class JacksonConfig {
-
-    @Bean
-    public Jackson2ObjectMapperBuilderCustomizer jsonCustomizer() {
-        return builder -> {
-            builder.simpleDateFormat("MM/dd/yyyy");
-            builder.serializers(new LocalDateSerializer(DateTimeFormatter.ofPattern("MM/dd/yyyy")));
-            builder.deserializers(new LocalDateDeserializer(DateTimeFormatter.ofPattern("MM/dd/yyyy")));
-        };
-    }
-}
-
-
-spring.jackson.date-format=MM/dd/yyyy
-spring.jackson.serialization.write-dates-as-timestamps=false
+        // Optional: disable timestamps
+        mapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
