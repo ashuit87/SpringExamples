@@ -1,5 +1,29 @@
- // Set global date format
-        mapper.setDateFormat(new SimpleDateFormat("MM/dd/yyyy"));
+import org.springframework.boot.web.servlet.MultipartConfigFactory;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
 
-        // Optional: disable timestamps
-        mapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+import jakarta.servlet.MultipartConfigElement;
+
+@Configuration
+public class MultipartConfig {
+
+    @Bean
+    public MultipartConfigElement multipartConfigElement() {
+        MultipartConfigFactory factory = new MultipartConfigFactory();
+
+        // set max file size
+        factory.setMaxFileSize("50MB");
+        factory.setMaxRequestSize("50MB");
+
+        // optional: set temp location (important for external Tomcat)
+        factory.setLocation(System.getProperty("java.io.tmpdir"));
+
+        return factory.createMultipartConfig();
+    }
+}
+
+
+
+spring.servlet.multipart.enabled=true
+spring.servlet.multipart.max-file-size=50MB
+spring.servlet.multipart.max-request-size=50MB
