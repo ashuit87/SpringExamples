@@ -1,5 +1,7 @@
 Dear Team,
 
+Application Upgrade (Spring Boot) – Request for QA Validation
+
 I would like to inform you that our application has been upgraded from Spring Framework to Spring Boot. As part of this change, I request your support in performing some basic functional and regression testing to ensure stability.
 
 Please verify the core functionalities and report any issues, inconsistencies, or unexpected behaviors you may encounter. Your feedback will be valuable in identifying and resolving potential gaps at the earliest.
