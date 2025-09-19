@@ -1,109 +1,102 @@
 <dependency>
-    <groupId>io.dropwizard.metrics</groupId>
-    <artifactId>metrics-core</artifactId>
-    <version>4.2.25</version>
-</dependency>
-
-<dependency>
-    <groupId>io.dropwizard.metrics</groupId>
-    <artifactId>metrics-healthchecks</artifactId>
-    <version>4.2.25</version>
-</dependency>
-
-<!-- Expose through Actuator -->
-<dependency>
     <groupId>org.springframework.boot</groupId>
     <artifactId>spring-boot-starter-actuator</artifactId>
 </dependency>
 
-
-import com.codahale.metrics.*;
-import com.codahale.metrics.jvm.*;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
-
-@Configuration
-public class MetricsConfig {
-
-    @Bean
-    public MetricRegistry metricRegistry() {
-        MetricRegistry registry = new MetricRegistry();
-
-        // JVM/GC/System metrics
-        registry.register("jvm.memory", new MemoryUsageGaugeSet());
-        registry.register("jvm.gc", new GarbageCollectorMetricSet());
-        registry.register("jvm.threads", new ThreadStatesGaugeSet());
-        registry.register("jvm.files", new FileDescriptorRatioGauge());
-
-        return registry;
-    }
-
-    @Bean
-    public HealthCheckRegistry healthCheckRegistry(MetricRegistry metricRegistry) {
-        HealthCheckRegistry healthCheckRegistry = new HealthCheckRegistry();
-
-        // Deadlock check
-        healthCheckRegistry.register("thread.deadlock", new ThreadDeadlockHealthCheck());
-
-        // Example custom health check
-        healthCheckRegistry.register("app.ping", new HealthCheck() {
-            @Override
-            protected Result check() {
-                return Result.healthy("Application is responding");
-            }
-        });
-
-        return healthCheckRegistry;
-    }
-}
+<!-- Prometheus export if you need Grafana -->
+<dependency>
+    <groupId>io.micrometer</groupId>
+    <artifactId>micrometer-registry-prometheus</artifactId>
+</dependency>
 
 
-
-import com.codahale.metrics.MetricRegistry;
-import com.codahale.metrics.Timer;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
 import org.aspectj.lang.annotation.Aspect;
 import org.springframework.stereotype.Component;
 
+import java.util.concurrent.TimeUnit;
+
 @Aspect
 @Component
-public class GenericMetricsAspect {
+public class MicrometerMetricsAspect {
 
-    private final MetricRegistry registry;
+    private final MeterRegistry registry;
 
-    public GenericMetricsAspect(MetricRegistry registry) {
+    public MicrometerMetricsAspect(MeterRegistry registry) {
         this.registry = registry;
     }
 
-    // Intercept all service methods
     @Around("execution(* com.example..service..*(..))")
     public Object monitor(ProceedingJoinPoint pjp) throws Throwable {
         String className = pjp.getTarget().getClass().getSimpleName();
         String methodName = pjp.getSignature().getName();
-        String metricName = "service." + className + "." + methodName;
 
-        Timer timer = registry.timer(metricName + ".latency");
-        Timer.Context context = timer.time();
+        String latencyMetric = "service.latency";
+        String errorMetric = "service.errors";
 
+        long start = System.nanoTime();
         try {
             return pjp.proceed();
         } catch (Exception e) {
-            registry.counter(metricName + ".errors").inc();
+            registry.counter(errorMetric,
+                    "service", className,
+                    "method", methodName
+            ).increment();
             throw e;
         } finally {
-            context.stop();
+            long duration = System.nanoTime() - start;
+            Timer.builder(latencyMetric)
+                    .tags("service", className, "method", methodName)
+                    .register(registry)
+                    .record(duration, TimeUnit.NANOSECONDS);
         }
     }
 }
+
+
+
+
+import org.springframework.boot.actuate.health.Health;
+import org.springframework.boot.actuate.health.HealthIndicator;
+import org.springframework.stereotype.Component;
+
+import java.lang.management.ManagementFactory;
+import java.lang.management.ThreadMXBean;
+
+@Component
+public class DeadlockHealthIndicator implements HealthIndicator {
+
+    @Override
+    public Health health() {
+        ThreadMXBean threadMXBean = ManagementFactory.getThreadMXBean();
+        long[] deadlockedThreads = threadMXBean.findDeadlockedThreads();
+
+        if (deadlockedThreads != null && deadlockedThreads.length > 0) {
+            return Health.down()
+                    .withDetail("deadlocks", deadlockedThreads.length)
+                    .build();
+        }
+        return Health.up().withDetail("deadlocks", "none").build();
+    }
+}
+
 
 
 management.endpoints.web.exposure.include=health,metrics,prometheus
 management.endpoint.health.show-details=always
 
 
-http://localhost:8080/actuator/health → deadlocks, JVM, custom health checks
+/actuator/health
 
-http://localhost:8080/actuator/metrics → timers, counters, JVM metrics
+GET /actuator/metrics/service.latency
 
-http://localhost:8080/actuator/prometheus → Prometheus scrape endpoint
+GET /actuator/metrics/service.errors
+
+GET /actuator/metrics/jvm.memory.used
+
+GET /actuator/metrics/system.cpu.usage
+
+GET /actuator/metrics/jvm.threads.liv
