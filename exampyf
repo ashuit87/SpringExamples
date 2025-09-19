@@ -1,9 +1,109 @@
-Dear Team,
+<dependency>
+    <groupId>io.dropwizard.metrics</groupId>
+    <artifactId>metrics-core</artifactId>
+    <version>4.2.25</version>
+</dependency>
 
-Application Upgrade (Spring Boot) – Request for QA Validation
+<dependency>
+    <groupId>io.dropwizard.metrics</groupId>
+    <artifactId>metrics-healthchecks</artifactId>
+    <version>4.2.25</version>
+</dependency>
 
-I would like to inform you that our application has been upgraded from Spring Framework to Spring Boot. As part of this change, I request your support in performing some basic functional and regression testing to ensure stability.
+<!-- Expose through Actuator -->
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-actuator</artifactId>
+</dependency>
 
-Please verify the core functionalities and report any issues, inconsistencies, or unexpected behaviors you may encounter. Your feedback will be valuable in identifying and resolving potential gaps at the earliest.
 
-Kindly prioritize this activity and share your observations at the earliest convenience.
+import com.codahale.metrics.*;
+import com.codahale.metrics.jvm.*;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+@Configuration
+public class MetricsConfig {
+
+    @Bean
+    public MetricRegistry metricRegistry() {
+        MetricRegistry registry = new MetricRegistry();
+
+        // JVM/GC/System metrics
+        registry.register("jvm.memory", new MemoryUsageGaugeSet());
+        registry.register("jvm.gc", new GarbageCollectorMetricSet());
+        registry.register("jvm.threads", new ThreadStatesGaugeSet());
+        registry.register("jvm.files", new FileDescriptorRatioGauge());
+
+        return registry;
+    }
+
+    @Bean
+    public HealthCheckRegistry healthCheckRegistry(MetricRegistry metricRegistry) {
+        HealthCheckRegistry healthCheckRegistry = new HealthCheckRegistry();
+
+        // Deadlock check
+        healthCheckRegistry.register("thread.deadlock", new ThreadDeadlockHealthCheck());
+
+        // Example custom health check
+        healthCheckRegistry.register("app.ping", new HealthCheck() {
+            @Override
+            protected Result check() {
+                return Result.healthy("Application is responding");
+            }
+        });
+
+        return healthCheckRegistry;
+    }
+}
+
+
+
+import com.codahale.metrics.MetricRegistry;
+import com.codahale.metrics.Timer;
+import org.aspectj.lang.ProceedingJoinPoint;
+import org.aspectj.lang.annotation.Around;
+import org.aspectj.lang.annotation.Aspect;
+import org.springframework.stereotype.Component;
+
+@Aspect
+@Component
+public class GenericMetricsAspect {
+
+    private final MetricRegistry registry;
+
+    public GenericMetricsAspect(MetricRegistry registry) {
+        this.registry = registry;
+    }
+
+    // Intercept all service methods
+    @Around("execution(* com.example..service..*(..))")
+    public Object monitor(ProceedingJoinPoint pjp) throws Throwable {
+        String className = pjp.getTarget().getClass().getSimpleName();
+        String methodName = pjp.getSignature().getName();
+        String metricName = "service." + className + "." + methodName;
+
+        Timer timer = registry.timer(metricName + ".latency");
+        Timer.Context context = timer.time();
+
+        try {
+            return pjp.proceed();
+        } catch (Exception e) {
+            registry.counter(metricName + ".errors").inc();
+            throw e;
+        } finally {
+            context.stop();
+        }
+    }
+}
+
+
+management.endpoints.web.exposure.include=health,metrics,prometheus
+management.endpoint.health.show-details=always
+
+
+http://localhost:8080/actuator/health → deadlocks, JVM, custom health checks
+
+http://localhost:8080/actuator/metrics → timers, counters, JVM metrics
+
+http://localhost:8080/actuator/prometheus → Prometheus scrape endpoint
