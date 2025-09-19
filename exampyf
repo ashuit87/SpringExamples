@@ -1,41 +1,23 @@
-import io.micrometer.core.instrument.MeterRegistry;
-import io.micrometer.core.instrument.binder.jvm.ClassLoaderMetrics;
-import io.micrometer.core.instrument.binder.jvm.JvmMemoryMetrics;
-import io.micrometer.core.instrument.binder.jvm.JvmThreadMetrics;
-import io.micrometer.core.instrument.binder.system.ProcessorMetrics;
-import jakarta.annotation.PostConstruct;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.web.SecurityFilterChain;
 
 @Configuration
-public class MetricsConfig {
+public class SecurityConfig {
 
-    private final MeterRegistry registry;
+    @Bean
+    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+        http
+            .authorizeHttpRequests(auth -> auth
+                .requestMatchers("/actuator/**").permitAll() // whitelist all actuator endpoints
+                .anyRequest().authenticated()
+            )
+            .csrf(csrf -> csrf.disable()); // optional: disable CSRF for actuator APIs
 
-    public MetricsConfig(MeterRegistry registry) {
-        this.registry = registry;
-    }
-
-    @PostConstruct
-    public void bindJvmMetrics() {
-        new ClassLoaderMetrics().bindTo(registry);
-        new JvmMemoryMetrics().bindTo(registry);
-        new JvmThreadMetrics().bindTo(registry);
-        new ProcessorMetrics().bindTo(registry);
+        return http.build();
     }
 }
 
-management.endpoints.web.exposure.include=health,metrics,prometheus
-management.endpoint.health.show-details=always
 
-
-/actuator/health
-
-GET /actuator/metrics/service.latency
-
-GET /actuator/metrics/service.errors
-
-GET /actuator/metrics/jvm.memory.used
-
-GET /actuator/metrics/system.cpu.usage
-
-GET /actuator/metrics/jvm.threads.liv
+management.endpoints.web.exposure.include=health,info,metrics,prometheus,threaddump
