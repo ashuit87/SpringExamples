@@ -1,89 +1,28 @@
-<dependency>
-    <groupId>org.springframework.boot</groupId>
-    <artifactId>spring-boot-starter-actuator</artifactId>
-</dependency>
-
-<!-- Prometheus export if you need Grafana -->
-<dependency>
-    <groupId>io.micrometer</groupId>
-    <artifactId>micrometer-registry-prometheus</artifactId>
-</dependency>
-
-
 import io.micrometer.core.instrument.MeterRegistry;
-import io.micrometer.core.instrument.Timer;
-import org.aspectj.lang.ProceedingJoinPoint;
-import org.aspectj.lang.annotation.Around;
-import org.aspectj.lang.annotation.Aspect;
-import org.springframework.stereotype.Component;
+import io.micrometer.core.instrument.binder.jvm.ClassLoaderMetrics;
+import io.micrometer.core.instrument.binder.jvm.JvmMemoryMetrics;
+import io.micrometer.core.instrument.binder.jvm.JvmThreadMetrics;
+import io.micrometer.core.instrument.binder.system.ProcessorMetrics;
+import jakarta.annotation.PostConstruct;
+import org.springframework.context.annotation.Configuration;
 
-import java.util.concurrent.TimeUnit;
-
-@Aspect
-@Component
-public class MicrometerMetricsAspect {
+@Configuration
+public class MetricsConfig {
 
     private final MeterRegistry registry;
 
-    public MicrometerMetricsAspect(MeterRegistry registry) {
+    public MetricsConfig(MeterRegistry registry) {
         this.registry = registry;
     }
 
-    @Around("execution(* com.example..service..*(..))")
-    public Object monitor(ProceedingJoinPoint pjp) throws Throwable {
-        String className = pjp.getTarget().getClass().getSimpleName();
-        String methodName = pjp.getSignature().getName();
-
-        String latencyMetric = "service.latency";
-        String errorMetric = "service.errors";
-
-        long start = System.nanoTime();
-        try {
-            return pjp.proceed();
-        } catch (Exception e) {
-            registry.counter(errorMetric,
-                    "service", className,
-                    "method", methodName
-            ).increment();
-            throw e;
-        } finally {
-            long duration = System.nanoTime() - start;
-            Timer.builder(latencyMetric)
-                    .tags("service", className, "method", methodName)
-                    .register(registry)
-                    .record(duration, TimeUnit.NANOSECONDS);
-        }
+    @PostConstruct
+    public void bindJvmMetrics() {
+        new ClassLoaderMetrics().bindTo(registry);
+        new JvmMemoryMetrics().bindTo(registry);
+        new JvmThreadMetrics().bindTo(registry);
+        new ProcessorMetrics().bindTo(registry);
     }
 }
-
-
-
-
-import org.springframework.boot.actuate.health.Health;
-import org.springframework.boot.actuate.health.HealthIndicator;
-import org.springframework.stereotype.Component;
-
-import java.lang.management.ManagementFactory;
-import java.lang.management.ThreadMXBean;
-
-@Component
-public class DeadlockHealthIndicator implements HealthIndicator {
-
-    @Override
-    public Health health() {
-        ThreadMXBean threadMXBean = ManagementFactory.getThreadMXBean();
-        long[] deadlockedThreads = threadMXBean.findDeadlockedThreads();
-
-        if (deadlockedThreads != null && deadlockedThreads.length > 0) {
-            return Health.down()
-                    .withDetail("deadlocks", deadlockedThreads.length)
-                    .build();
-        }
-        return Health.up().withDetail("deadlocks", "none").build();
-    }
-}
-
-
 
 management.endpoints.web.exposure.include=health,metrics,prometheus
 management.endpoint.health.show-details=always
