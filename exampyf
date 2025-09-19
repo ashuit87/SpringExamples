@@ -10,14 +10,17 @@ public class SecurityConfig {
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
             .authorizeHttpRequests(auth -> auth
-                .requestMatchers("/actuator/**").permitAll() // whitelist all actuator endpoints
+                .requestMatchers("/actuator/**").permitAll()   // whitelist all actuator endpoints
                 .anyRequest().authenticated()
             )
-            .csrf(csrf -> csrf.disable()); // optional: disable CSRF for actuator APIs
+            .csrf(csrf -> csrf
+                .ignoringRequestMatchers("/actuator/**") // CSRF not applied to actuator
+            );
 
         return http.build();
     }
 }
+
 
 
 management.endpoints.web.exposure.include=health,info,metrics,prometheus,threaddump
