@@ -1,26 +1,67 @@
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
-import org.springframework.security.config.annotation.web.builders.HttpSecurity;
-import org.springframework.security.web.SecurityFilterChain;
+Step-by-step guide to gracefully stop Spring @Scheduled jobs in OpenShift
+1. Enable graceful shutdown in Spring Boot
+Spring Boot 2.3+ supports graceful shutdown out of the box.
+In your application.yml or application.properties:
 
-@Configuration
-public class SecurityConfig {
+server:
+  shutdown: graceful
+spring:
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
 
-    @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
-        http
-            .authorizeHttpRequests(auth -> auth
-                .requestMatchers("/actuator/**").permitAll()   // whitelist all actuator endpoints
-                .anyRequest().authenticated()
-            )
-            .csrf(csrf -> csrf
-                .ignoringRequestMatchers("/actuator/**") // CSRF not applied to actuator
-            );
+This ensures that when the container receives SIGTERM, Spring:
+Stops accepting new requests.
+Waits for running tasks (including scheduled ones) to complete up to the timeout.
+Then shuts down the context.
 
-        return http.build();
+2. Implement SmartLifecycle or DisposableBean (optional but cleaner)
+
+If you have a long-running scheduled job, you can handle shutdown manually to make sure it stops gracefully.
+
+import org.springframework.stereotype.Component;
+
+import jakarta.annotation.PreDestroy;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+@Component
+public class MyScheduledJob {
+
+    private final AtomicBoolean running = new AtomicBoolean(true);
+
+    @org.springframework.scheduling.annotation.Scheduled(fixedDelay = 10000)
+    public void execute() {
+        if (!running.get()) {
+            return;
+        }
+        System.out.println("Job started...");
+        try {
+            // Simulate work
+            Thread.sleep(5000);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        System.out.println("Job finished...");
+    }
+
+    @PreDestroy
+    public void onShutdown() {
+        System.out.println("Shutdown signal received. Stopping job...");
+        running.set(false);
     }
 }
 
+@PreDestroy runs when the application context is shutting down (after SIGTERM),
+so your scheduled job loop stops cleanly.
 
+3. Configure OpenShift deployment for graceful termination
+In your OpenShift (or Kubernetes) deployment YAML, set:
 
-management.endpoints.web.exposure.include=health,info,metrics,prometheus,threaddump
+spec:
+  template:
+    spec:
+      terminationGracePeriodSeconds: 60  # give enough time for cleanup
+
+This ensures that when the pod is stopped, OpenShift:
+Sends a SIGTERM.
+Waits up to 60 seconds before killing the pod.
+
