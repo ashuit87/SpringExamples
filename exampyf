@@ -2,8 +2,7 @@ Step-by-step guide to gracefully stop Spring @Scheduled jobs in OpenShift
 1. Enable graceful shutdown in Spring Boot
 Spring Boot 2.3+ supports graceful shutdown out of the box.
 In your application.yml or application.properties:
-
-server:
+:
   shutdown: graceful
 spring:
   lifecycle:
@@ -63,5 +62,88 @@ spec:
 
 This ensures that when the pod is stopped, OpenShift:
 Sends a SIGTERM.
-Waits up to 60 seconds before killing the pod.
+Waits up to 60 seconds before killing the package com.immersivelabs.forum.servlet;
 
+import com.immersivelabs.forum.repository.QuestionRepository;
+import jakarta.servlet.RequestDispatcher;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.annotation.WebServlet;
+import jakarta.servlet.http.HttpServlet;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
+import java.text.SimpleDateFormat;
+import java.util.Arrays;
+import java.util.Date;
+import java.util.List;
+
+@WebServlet(urlPatterns = {"/settings"})
+public class SettingsServlet extends HttpServlet {
+
+    private static final long serialVersionUID = -1316424288463998758L;
+
+    // Default and allowed formats
+    private static final String DEFAULT_DATE_FORMAT = "yy-MM-dd HH:mm:ss";
+    private static final List<String> ALLOWED_FORMATS = Arrays.asList(
+        "yy-MM-dd HH:mm:ss",
+        "dd-MM-yy HH:mm:ss",
+        "MM-dd-yy HH:mm:ss"
+    );
+
+    @Override
+    protected void doGet(HttpServletRequest req, HttpServletResponse resp)
+            throws ServletException, IOException {
+
+        // Get date format from request
+        String dateFormat = req.getParameter("date_format");
+
+        // If not present, load from session
+        if (dateFormat == null) {
+            dateFormat = getDateFormat(req);
+        }
+
+        // Validate format against whitelist
+        dateFormat = sanitizeDateFormat(dateFormat);
+
+        // Generate current date string
+        String now = getCurrentDate(dateFormat);
+
+        // Set attributes for JSP
+        req.setAttribute("date_format", dateFormat);
+        req.setAttribute("date_now", now);
+
+        // Forward to JSP page
+        RequestDispatcher dispatcher = req.getRequestDispatcher("/WEB-INF/jsp/settings.jsp");
+        dispatcher.forward(req, resp);
+    }
+
+    private String getDateFormat(HttpServletRequest req) {
+        Object attr = req.getSession().getAttribute("date_format");
+        if (attr instanceof String) {
+            return (String) attr;
+        }
+        return DEFAULT_DATE_FORMAT;
+    }
+
+    private String sanitizeDateFormat(String format) {
+        if (format == null) {
+            return DEFAULT_DATE_FORMAT;
+        }
+        format = format.trim();
+        if (ALLOWED_FORMATS.contains(format)) {
+            return format;
+        }
+        return DEFAULT_DATE_FORMAT;
+    }
+
+    private String getCurrentDate(String format) {
+        try {
+            SimpleDateFormat sdf = new SimpleDateFormat(format);
+            return sdf.format(new Date());
+        } catch (IllegalArgumentException e) {
+            // Fallback to default if pattern invalid
+            SimpleDateFormat sdf = new SimpleDateFormat(DEFAULT_DATE_FORMAT);
+            return sdf.format(new Date());
+        }
+    }
+}
