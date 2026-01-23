@@ -1,149 +1,54 @@
-Step-by-step guide to gracefully stop Spring @Scheduled jobs in OpenShift
-1. Enable graceful shutdown in Spring Boot
-Spring Boot 2.3+ supports graceful shutdown out of the box.
-In your application.yml or application.properties:
-:
-  shutdown: graceful
-spring:
-  lifecycle:
-    timeout-per-shutdown-phase: 30s
+package com.citi.rulefabricator.export.util;
 
-This ensures that when the container receives SIGTERM, Spring:
-Stops accepting new requests.
-Waits for running tasks (including scheduled ones) to complete up to the timeout.
-Then shuts down the context.
+import java.util.HashSet;
+import java.util.Set;
 
-2. Implement SmartLifecycle or DisposableBean (optional but cleaner)
+/**
+ * SXSSFWorkbook-safe Excel sheet name generator.
+ * One instance MUST be used per workbook.
+ */
+public class ExcelSheetNameGenerator {
 
-If you have a long-running scheduled job, you can handle shutdown manually to make sure it stops gracefully.
+    private static final int MAX_LENGTH = 31;
+    private static final String ILLEGAL_CHARS_REGEX = "[:\\\\/?*\\[\\]]";
 
-import org.springframework.stereotype.Component;
+    private final Set<String> usedNames = new HashSet<>();
 
-import jakarta.annotation.PreDestroy;
-import java.util.concurrent.atomic.AtomicBoolean;
+    /**
+     * Generate a unique, Excel-safe sheet name.
+     */
+    public String next(String baseName) {
 
-@Component
-public class MyScheduledJob {
+        String normalized = normalize(baseName);
+        String candidate = normalized;
+        int counter = 1;
 
-    private final AtomicBoolean running = new AtomicBoolean(true);
-
-    @org.springframework.scheduling.annotation.Scheduled(fixedDelay = 10000)
-    public void execute() {
-        if (!running.get()) {
-            return;
+        while (usedNames.contains(candidate.toLowerCase())) {
+            String suffix = "_" + counter++;
+            int maxBaseLength = MAX_LENGTH - suffix.length();
+            candidate = normalized.substring(
+                    0, Math.min(normalized.length(), maxBaseLength)
+            ) + suffix;
         }
-        System.out.println("Job started...");
-        try {
-            // Simulate work
-            Thread.sleep(5000);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-        System.out.println("Job finished...");
+
+        usedNames.add(candidate.toLowerCase());
+        return candidate;
     }
 
-    @PreDestroy
-    public void onShutdown() {
-        System.out.println("Shutdown signal received. Stopping job...");
-        running.set(false);
-    }
-}
-
-@PreDestroy runs when the application context is shutting down (after SIGTERM),
-so your scheduled job loop stops cleanly.
-
-3. Configure OpenShift deployment for graceful termination
-In your OpenShift (or Kubernetes) deployment YAML, set:
-
-spec:
-  template:
-    spec:
-      terminationGracePeriodSeconds: 60  # give enough time for cleanup
-
-This ensures that when the pod is stopped, OpenShift:
-Sends a SIGTERM.
-Waits up to 60 seconds before killing the package com.immersivelabs.forum.servlet;
-
-import com.immersivelabs.forum.repository.QuestionRepository;
-import jakarta.servlet.RequestDispatcher;
-import jakarta.servlet.ServletException;
-import jakarta.servlet.annotation.WebServlet;
-import jakarta.servlet.http.HttpServlet;
-import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
-import java.io.IOException;
-import java.text.SimpleDateFormat;
-import java.util.Arrays;
-import java.util.Date;
-import java.util.List;
-
-@WebServlet(urlPatterns = {"/settings"})
-public class SettingsServlet extends HttpServlet {
-
-    private static final long serialVersionUID = -1316424288463998758L;
-
-    // Default and allowed formats
-    private static final String DEFAULT_DATE_FORMAT = "yy-MM-dd HH:mm:ss";
-    private static final List<String> ALLOWED_FORMATS = Arrays.asList(
-        "yy-MM-dd HH:mm:ss",
-        "dd-MM-yy HH:mm:ss",
-        "MM-dd-yy HH:mm:ss"
-    );
-
-    @Override
-    protected void doGet(HttpServletRequest req, HttpServletResponse resp)
-            throws ServletException, IOException {
-
-        // Get date format from request
-        String dateFormat = req.getParameter("date_format");
-
-        // If not present, load from session
-        if (dateFormat == null) {
-            dateFormat = getDateFormat(req);
+    private String normalize(String name) {
+        if (name == null || name.isBlank()) {
+            return "Sheet";
         }
 
-        // Validate format against whitelist
-        dateFormat = sanitizeDateFormat(dateFormat);
+        name = name.trim();
+        name = name.replaceAll(ILLEGAL_CHARS_REGEX, "_");
 
-        // Generate current date string
-        String now = getCurrentDate(dateFormat);
-
-        // Set attributes for JSP
-        req.setAttribute("date_format", dateFormat);
-        req.setAttribute("date_now", now);
-
-        // Forward to JSP page
-        RequestDispatcher dispatcher = req.getRequestDispatcher("/WEB-INF/jsp/settings.jsp");
-        dispatcher.forward(req, resp);
-    }
-
-    private String getDateFormat(HttpServletRequest req) {
-        Object attr = req.getSession().getAttribute("date_format");
-        if (attr instanceof String) {
-            return (String) attr;
-        }
-        return DEFAULT_DATE_FORMAT;
-    }
-
-    private String sanitizeDateFormat(String format) {
-        if (format == null) {
-            return DEFAULT_DATE_FORMAT;
-        }
-        format = format.trim();
-        if (ALLOWED_FORMATS.contains(format)) {
-            return format;
-        }
-        return DEFAULT_DATE_FORMAT;
-    }
-
-    private String getCurrentDate(String format) {
-        try {
-            SimpleDateFormat sdf = new SimpleDateFormat(format);
-            return sdf.format(new Date());
-        } catch (IllegalArgumentException e) {
-            // Fallback to default if pattern invalid
-            SimpleDateFormat sdf = new SimpleDateFormat(DEFAULT_DATE_FORMAT);
-            return sdf.format(new Date());
-        }
+        return name.length() > MAX_LENGTH
+                ? name.substring(0, MAX_LENGTH)
+                : name;
     }
 }
+
+
+
+
