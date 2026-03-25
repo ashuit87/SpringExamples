@@ -17,8 +17,7 @@ public class ExcelSheetNameGenerator {
     /**
      * Generate a unique, Excel-safe sheet name.
      */
-    public String next(String baseName) {
-
+    public String next(String bas
         String normalized = normalize(baseName);
         String candidate = normalized;
         int counter = 1;
@@ -46,6 +45,58 @@ public class ExcelSheetNameGenerator {
         return name.length() > MAX_LENGTH
                 ? name.substring(0, MAX_LENGTH)
                 : name;
+    }
+}
+
+
+
+package com.yourpackage.util;
+
+import org.springframework.web.util.UriComponentsBuilder;
+
+import java.util.Map;
+
+public final class PathParamUtil {
+
+    private PathParamUtil() {
+        // Prevent instantiation
+    }
+
+    /**
+     * Replace path variables like {key} with values from map
+     */
+    public static String buildPath(String template, Map<String, ?> params) {
+        validate(template, params);
+
+        String result = UriComponentsBuilder
+                .fromPath(template)
+                .buildAndExpand(params)
+                .toUriString();
+
+        validateNoUnresolvedParams(result);
+
+        return result;
+    }
+
+    /**
+     * Validate input
+     */
+    private static void validate(String template, Map<String, ?> params) {
+        if (template == null || template.isEmpty()) {
+            throw new IllegalArgumentException("Template cannot be null or empty");
+        }
+        if (params == null || params.isEmpty()) {
+            throw new IllegalArgumentException("Params cannot be null or empty");
+        }
+    }
+
+    /**
+     * Ensure no {param} is left unresolved
+     */
+    private static void validateNoUnresolvedParams(String result) {
+        if (result.contains("{") || result.contains("}")) {
+            throw new IllegalArgumentException("Missing values for some path parameters: " + result);
+        }
     }
 }
 
