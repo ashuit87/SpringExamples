@@ -1,105 +1,46 @@
-package com.citi.rulefabricator.export.util;
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
-import java.util.HashSet;
-import java.util.Set;
+public class ExcelTemplateConfig extends RowConstraintConfig {
 
-/**
- * SXSSFWorkbook-safe Excel sheet name generator.
- * One instance MUST be used per workbook.
- */
-public class ExcelSheetNameGenerator {
+    private String sourceType;
+    private NasSourceConfig nasSourceConfig;
+    private APISourceConfig apiSourceConfig;
 
-    private static final int MAX_LENGTH = 31;
-    private static final String ILLEGAL_CHARS_REGEX = "[:\\\\/?*\\[\\]]";
-
-    private final Set<String> usedNames = new HashSet<>();
-
-    /**
-     * Generate a unique, Excel-safe sheet name.
-     */
-    public String next(String bas
-        String normalized = normalize(baseName);
-        String candidate = normalized;
-        int counter = 1;
-
-        while (usedNames.contains(candidate.toLowerCase())) {
-            String suffix = "_" + counter++;
-            int maxBaseLength = MAX_LENGTH - suffix.length();
-            candidate = normalized.substring(
-                    0, Math.min(normalized.length(), maxBaseLength)
-            ) + suffix;
-        }
-
-        usedNames.add(candidate.toLowerCase());
-        return candidate;
+    @JsonCreator
+    public ExcelTemplateConfig(
+            @JsonProperty("msgKey") String msgKey,
+            @JsonProperty("sourceType") String sourceType,
+            @JsonProperty("nasSourceConfig") NasSourceConfig nasSourceConfig,
+            @JsonProperty("apiSourceConfig") APISourceConfig apiSourceConfig
+    ) {
+        super(msgKey);
+        this.sourceType = sourceType;
+        this.nasSourceConfig = nasSourceConfig;
+        this.apiSourceConfig = apiSourceConfig;
     }
 
-    private String normalize(String name) {
-        if (name == null || name.isBlank()) {
-            return "Sheet";
-        }
+    public String getSourceType() {
+        return sourceType;
+    }
 
-        name = name.trim();
-        name = name.replaceAll(ILLEGAL_CHARS_REGEX, "_");
+    public void setSourceType(String sourceType) {
+        this.sourceType = sourceType;
+    }
 
-        return name.length() > MAX_LENGTH
-                ? name.substring(0, MAX_LENGTH)
-                : name;
+    public NasSourceConfig getNasSourceConfig() {
+        return nasSourceConfig;
+    }
+
+    public void setNasSourceConfig(NasSourceConfig nasSourceConfig) {
+        this.nasSourceConfig = nasSourceConfig;
+    }
+
+    public APISourceConfig getApiSourceConfig() {
+        return apiSourceConfig;
+    }
+
+    public void setApiSourceConfig(APISourceConfig apiSourceConfig) {
+        this.apiSourceConfig = apiSourceConfig;
     }
 }
-
-
-
-package com.yourpackage.util;
-
-import org.springframework.web.util.UriComponentsBuilder;
-
-import java.util.Map;
-
-public final class PathParamUtil {
-
-    private PathParamUtil() {
-        // Prevent instantiation
-    }
-
-    /**
-     * Replace path variables like {key} with values from map
-     */
-    public static String buildPath(String template, Map<String, ?> params) {
-        validate(template, params);
-
-        String result = UriComponentsBuilder
-                .fromPath(template)
-                .buildAndExpand(params)
-                .toUriString();
-
-        validateNoUnresolvedParams(result);
-
-        return result;
-    }
-
-    /**
-     * Validate input
-     */
-    private static void validate(String template, Map<String, ?> params) {
-        if (template == null || template.isEmpty()) {
-            throw new IllegalArgumentException("Template cannot be null or empty");
-        }
-        if (params == null || params.isEmpty()) {
-            throw new IllegalArgumentException("Params cannot be null or empty");
-        }
-    }
-
-    /**
-     * Ensure no {param} is left unresolved
-     */
-    private static void validateNoUnresolvedParams(String result) {
-        if (result.contains("{") || result.contains("}")) {
-            throw new IllegalArgumentException("Missing values for some path parameters: " + result);
-        }
-    }
-}
-
-
-
-
