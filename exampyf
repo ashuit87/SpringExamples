@@ -1,46 +1,119 @@
-import com.fasterxml.jackson.annotation.JsonCreator;
-import com.fasterxml.jackson.annotation.JsonProperty;
+1) public enum SourceType {
+    NAS,
+    API;
 
-public class ExcelTemplateConfig extends RowConstraintConfig {
+    public static SourceType from(String value) {
+        return SourceType.valueOf(value.toUpperCase());
+    }
+}
 
-    private String sourceType;
-    private NasSourceConfig nasSourceConfig;
-    private APISourceConfig apiSourceConfig;
 
-    @JsonCreator
-    public ExcelTemplateConfig(
-            @JsonProperty("msgKey") String msgKey,
-            @JsonProperty("sourceType") String sourceType,
-            @JsonProperty("nasSourceConfig") NasSourceConfig nasSourceConfig,
-            @JsonProperty("apiSourceConfig") APISourceConfig apiSourceConfig
-    ) {
-        super(msgKey);
-        this.sourceType = sourceType;
-        this.nasSourceConfig = nasSourceConfig;
-        this.apiSourceConfig = apiSourceConfig;
+2) public abstract class SourceConfig {
+
+    public abstract SourceValidatorStrategy getStrategy();
+}
+
+3) public class NasSourceConfig extends SourceConfig {
+
+    private String filePath;
+    private String fileType;
+
+    @Override
+    public SourceValidatorStrategy getStrategy() {
+        return new NasSourceValidatorStrategy();
     }
 
-    public String getSourceType() {
+    public String getFilePath() {
+        return filePath;
+    }
+
+    public String getFileType() {
+        return fileType;
+    }
+}
+
+4) public class APISourceConfig extends SourceConfig {
+
+    private String url;
+    private String method;
+
+    @Override
+    public SourceValidatorStrategy getStrategy() {
+        return new ApiSourceValidatorStrategy();
+    }
+
+    public String getUrl() {
+        return url;
+    }
+
+    public String getMethod() {
+        return method;
+    }
+}
+
+5) public class ExcelTemplateConfig extends RowConstraintConfig {
+
+    private SourceType sourceType;
+    private SourceConfig sourceConfig;
+
+    public ExcelTemplateConfig(String msgKey,
+                               String sourceType,
+                               SourceConfig sourceConfig) {
+        super(msgKey);
+        this.sourceType = SourceType.from(sourceType);
+        this.sourceConfig = sourceConfig;
+    }
+
+    public SourceType getSourceType() {
         return sourceType;
     }
 
-    public void setSourceType(String sourceType) {
-        this.sourceType = sourceType;
+    public SourceConfig getSourceConfig() {
+        return sourceConfig;
     }
+}
 
-    public NasSourceConfig getNasSourceConfig() {
-        return nasSourceConfig;
-    }
 
-    public void setNasSourceConfig(NasSourceConfig nasSourceConfig) {
-        this.nasSourceConfig = nasSourceConfig;
-    }
+6) public interface SourceValidatorStrategy<T extends SourceConfig> {
 
-    public APISourceConfig getApiSourceConfig() {
-        return apiSourceConfig;
-    }
+    void validate(T config,
+                  TableConstraintInputDTO input,
+                  TypeWiseConstraintFailures failureContainer);
+}
 
-    public void setApiSourceConfig(APISourceConfig apiSourceConfig) {
-        this.apiSourceConfig = apiSourceConfig;
+7)  public class NasSourceValidatorStrategy
+        implements SourceValidatorStrategy<NasSourceConfig> {
+
+    @Override
+    public void validate(NasSourceConfig config,
+                         TableConstraintInputDTO input,
+                         TypeWiseConstraintFailures failureContainer) {
+
+        System.out.println("Validating NAS: " + config.getFilePath());
     }
+}
+
+8)  public class ApiSourceValidatorStrategy
+        implements SourceValidatorStrategy<APISourceConfig> {
+
+    @Override
+    public void validate(APISourceConfig config,
+                         TableConstraintInputDTO input,
+                         TypeWiseConstraintFailures failureContainer) {
+
+        System.out.println("Validating API: " + config.getUrl());
+    }
+}
+
+9) @Override
+public void validate(TableConstraintInputDTO object,
+                     TypeWiseConstraintFailures failureContainer) {
+
+    ExcelTemplateConfig config = (ExcelTemplateConfig) getConfig();
+
+    SourceConfig sourceConfig = config.getSourceConfig();
+
+    SourceValidatorStrategy strategy = sourceConfig.getStrategy();
+
+    strategy.validate(sourceConfig, object, failureContainer);
 }
