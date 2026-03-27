@@ -11,9 +11,19 @@ public enum SourceType {
 }
 
 
-// ======================= BASE CONFIG =======================
+// ======================= BASE SOURCE CONFIG =======================
 
+import com.fasterxml.jackson.annotation.JsonTypeInfo;
+
+@JsonTypeInfo(
+        use = JsonTypeInfo.Id.NAME,
+        include = JsonTypeInfo.As.EXTERNAL_PROPERTY,
+        property = "sourceType"
+)
 public abstract class SourceConfig {
+
+    public abstract SourceType getType();
+
     public abstract SourceValidatorStrategy getStrategy();
 }
 
@@ -24,6 +34,11 @@ public class NasSourceConfig extends SourceConfig {
 
     private String filePath;
     private String fileType;
+
+    @Override
+    public SourceType getType() {
+        return SourceType.NAS;
+    }
 
     @Override
     public SourceValidatorStrategy getStrategy() {
@@ -48,6 +63,11 @@ public class APISourceConfig extends SourceConfig {
     private String method;
 
     @Override
+    public SourceType getType() {
+        return SourceType.API;
+    }
+
+    @Override
     public SourceValidatorStrategy getStrategy() {
         return new ApiSourceValidatorStrategy();
     }
@@ -64,17 +84,35 @@ public class APISourceConfig extends SourceConfig {
 
 // ======================= MAIN CONFIG =======================
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
+
 public class ExcelTemplateConfig extends RowConstraintConfig {
 
     private SourceType sourceType;
     private SourceConfig sourceConfig;
 
-    public ExcelTemplateConfig(String msgKey,
-                               String sourceType,
-                               SourceConfig sourceConfig) {
+    @JsonCreator
+    public ExcelTemplateConfig(
+            @JsonProperty("msgKey") String msgKey,
+            @JsonProperty("sourceType") String sourceType,
+            @JsonProperty("sourceConfig") SourceConfig sourceConfig
+    ) {
         super(msgKey);
         this.sourceType = SourceType.from(sourceType);
         this.sourceConfig = sourceConfig;
+
+        validate();
+    }
+
+    private void validate() {
+        if (sourceConfig == null) {
+            throw new IllegalArgumentException("sourceConfig cannot be null");
+        }
+
+        if (!sourceType.equals(sourceConfig.getType())) {
+            throw new IllegalArgumentException("Mismatch between sourceType and sourceConfig");
+        }
     }
 
     public SourceType getSourceType() {
@@ -107,7 +145,7 @@ public class NasSourceValidatorStrategy
                          TableConstraintInputDTO input,
                          TypeWiseConstraintFailures failureContainer) {
 
-        System.out.println("Validating NAS: " + config.getFilePath());
+        System.out.println("Validating NAS file: " + config.getFilePath());
     }
 }
 
@@ -127,18 +165,72 @@ public class ApiSourceValidatorStrategy
 }
 
 
-// ======================= VALIDATOR =======================
+// ======================= EXCEL TEMPLATE VALIDATOR =======================
 
-@Override
-public void validate(TableConstraintInputDTO object,
-                     TypeWiseConstraintFailures failureContainer) {
+public class ExcelTemplateValidator extends
+        ChainableBaseConstraintValidator<TableConstraintInputDTO,
+                                         ExcelTemplateConfig,
+                                         TypeWiseConstraintFailures>
+        implements ConstraintContextAware {
 
-    ExcelTemplateConfig config = (ExcelTemplateConfig) getConfig();
+    private ConstraintContext context;
 
-    SourceConfig sourceConfig = config.getSourceConfig();
+    public ExcelTemplateValidator(ExcelTemplateConfig config) {
+        super(config);
+    }
 
-    SourceValidatorStrategy strategy = sourceConfig.getStrategy();
+    @Override
+    public void setContext(ConstraintContext context) {
+        this.context = context;
+    }
 
-    strategy.validate(sourceConfig, object, failureContainer);
+    @Override
+    public ConstraintContext getContext() {
+        return context;
+    }
+
+    @Override
+    public void validate(TableConstraintInputDTO object,
+                         TypeWiseConstraintFailures failureContainer) {
+
+        ExcelTemplateConfig config = getConfig();
+
+        if (config == null || config.getSourceConfig() == null) {
+            throw new IllegalArgumentException("Invalid ExcelTemplateConfig");
+        }
+
+        SourceConfig sourceConfig = config.getSourceConfig();
+
+        SourceValidatorStrategy strategy = sourceConfig.getStrategy();
+
+        strategy.validate(sourceConfig, object, failureContainer);
+    }
+}
+
+
+// ======================= JACKSON REGISTRATION MODULE =======================
+
+import com.fasterxml.jackson.databind.module.SimpleModule;
+import com.fasterxml.jackson.databind.jsontype.NamedType;
+
+import java.util.ArrayList;
+import java.util.Collection;
+
+public class ConstraintConfigSubtypeRegistrationModule extends SimpleModule {
+
+    @Override
+    public void setupModule(SetupContext context) {
+        super.setupModule(context);
+
+        Collection<NamedType> allNamedTypes = new ArrayList<>();
+
+        // existing registrations...
+
+        // 🔥 ADD THESE
+        allNamedTypes.add(new NamedType(NasSourceConfig.class, "NAS"));
+        allNamedTypes.add(new NamedType(APISourceConfig.class, "API"));
+
+        context.registerSubtypes(allNamedTypes.toArray(new NamedType[0]));
+    }
 }
 ```
