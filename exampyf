@@ -1,4 +1,4 @@
-1) public enum SourceType {
+public enum SourceType {
     NAS,
     API;
 
@@ -8,20 +8,50 @@
 }
 
 
-2) public abstract class SourceConfig {
 
-    public abstract SourceValidatorStrategy getStrategy();
+
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
+
+public class ExcelTemplateConfig extends RowConstraintConfig {
+
+    private SourceType sourceType;
+    private NasSourceConfig nasSourceConfig;
+    private APISourceConfig apiSourceConfig;
+
+    @JsonCreator
+    public ExcelTemplateConfig(
+            @JsonProperty("msgKey") String msgKey,
+            @JsonProperty("sourceType") String sourceType,
+            @JsonProperty("nasSourceConfig") NasSourceConfig nasSourceConfig,
+            @JsonProperty("apiSourceConfig") APISourceConfig apiSourceConfig
+    ) {
+        super(msgKey);
+        this.sourceType = SourceType.from(sourceType);
+        this.nasSourceConfig = nasSourceConfig;
+        this.apiSourceConfig = apiSourceConfig;
+    }
+
+    public SourceType getSourceType() {
+        return sourceType;
+    }
+
+    public NasSourceConfig getNasSourceConfig() {
+        return nasSourceConfig;
+    }
+
+    public APISourceConfig getApiSourceConfig() {
+        return apiSourceConfig;
+    }
 }
 
-3) public class NasSourceConfig extends SourceConfig {
+
+
+
+public class NasSourceConfig {
 
     private String filePath;
     private String fileType;
-
-    @Override
-    public SourceValidatorStrategy getStrategy() {
-        return new NasSourceValidatorStrategy();
-    }
 
     public String getFilePath() {
         return filePath;
@@ -32,15 +62,13 @@
     }
 }
 
-4) public class APISourceConfig extends SourceConfig {
+
+
+
+public class APISourceConfig {
 
     private String url;
     private String method;
-
-    @Override
-    public SourceValidatorStrategy getStrategy() {
-        return new ApiSourceValidatorStrategy();
-    }
 
     public String getUrl() {
         return url;
@@ -51,69 +79,126 @@
     }
 }
 
-5) public class ExcelTemplateConfig extends RowConstraintConfig {
 
-    private SourceType sourceType;
-    private SourceConfig sourceConfig;
 
-    public ExcelTemplateConfig(String msgKey,
-                               String sourceType,
-                               SourceConfig sourceConfig) {
-        super(msgKey);
-        this.sourceType = SourceType.from(sourceType);
-        this.sourceConfig = sourceConfig;
-    }
+public interface SourceValidatorStrategy {
 
-    public SourceType getSourceType() {
-        return sourceType;
-    }
+    SourceType getType();
 
-    public SourceConfig getSourceConfig() {
-        return sourceConfig;
-    }
+    void validate(TableConstraintInputDTO input,
+                  TypeWiseConstraintFailures failureContainer,
+                  ExcelTemplateConfig config,
+                  ConstraintContext context);
 }
 
 
-6) public interface SourceValidatorStrategy<T extends SourceConfig> {
+import org.springframework.stereotype.Component;
 
-    void validate(T config,
-                  TableConstraintInputDTO input,
-                  TypeWiseConstraintFailures failureContainer);
-}
-
-7)  public class NasSourceValidatorStrategy
-        implements SourceValidatorStrategy<NasSourceConfig> {
+@Component("NAS")
+public class NasSourceValidatorStrategy implements SourceValidatorStrategy {
 
     @Override
-    public void validate(NasSourceConfig config,
-                         TableConstraintInputDTO input,
-                         TypeWiseConstraintFailures failureContainer) {
-
-        System.out.println("Validating NAS: " + config.getFilePath());
+    public SourceType getType() {
+        return SourceType.NAS;
     }
-}
-
-8)  public class ApiSourceValidatorStrategy
-        implements SourceValidatorStrategy<APISourceConfig> {
 
     @Override
-    public void validate(APISourceConfig config,
-                         TableConstraintInputDTO input,
-                         TypeWiseConstraintFailures failureContainer) {
+    public void validate(TableConstraintInputDTO input,
+                         TypeWiseConstraintFailures failureContainer,
+                         ExcelTemplateConfig config,
+                         ConstraintContext context) {
 
-        System.out.println("Validating API: " + config.getUrl());
+        NasSourceConfig nas = config.getNasSourceConfig();
+
+        if (nas == null) {
+            throw new IllegalArgumentException("NAS config missing");
+        }
+
+        // 👉 Your actual validation logic
+        System.out.println("Validating NAS file: " + nas.getFilePath());
+    }
+
+
+}
+
+
+
+
+
+import org.springframework.stereotype.Component;
+
+@Component("API")
+public class ApiSourceValidatorStrategy implements SourceValidatorStrategy {
+
+    @Override
+    public SourceType getType() {
+        return SourceType.API;
+    }
+
+    @Override
+    public void validate(TableConstraintInputDTO input,
+                         TypeWiseConstraintFailures failureContainer,
+                         ExcelTemplateConfig config,
+                         ConstraintContext context) {
+
+        APISourceConfig api = config.getApiSourceConfig();
+
+        if (api == null) {
+            throw new IllegalArgumentException("API config missing");
+        }
+
+        // 👉 Your actual validation logic
+        System.out.println("Validating API: " + api.getUrl());
     }
 }
 
-9) @Override
-public void validate(TableConstraintInputDTO object,
-                     TypeWiseConstraintFailures failureContainer) {
 
-    ExcelTemplateConfig config = (ExcelTemplateConfig) getConfig();
 
-    SourceConfig sourceConfig = config.getSourceConfig();
 
-    SourceValidatorStrategy strategy = sourceConfig.getStrategy();
+import org.springframework.beans.factory.annotation.Autowired;
+import java.util.Map;
 
-    strategy.validate(sourceConfig, object, failureContainer);
+public class ExcelTemplateValidator
+        extends ChainableBaseConstraintValidator<TableConstraintInputDTO, ExcelTemplateConfig, TypeWiseConstraintFailures>
+        implements ConstraintContextAware {
+
+    private ConstraintContext context;
+
+    @Autowired
+    private Map<String, SourceValidatorStrategy> strategyMap;
+
+    public ExcelTemplateValidator(ExcelTemplateConfig config) {
+        super(config);
+    }
+
+    @Override
+    public void setContext(ConstraintContext context) {
+        this.context = context;
+    }
+
+    @Override
+    public ConstraintContext getContext() {
+        return context;
+    }
+
+    @Override
+    public void validate(TableConstraintInputDTO object,
+                         TypeWiseConstraintFailures failureContainer) {
+
+        ExcelTemplateConfig config = (ExcelTemplateConfig) getConfig();
+
+        String key = config.getSourceType().name();
+
+        SourceValidatorStrategy strategy = strategyMap.get(key);
+
+        if (strategy == null) {
+            throw new IllegalArgumentException("Unsupported sourceType: " + key);
+        }
+
+        strategy.validate(object, failureContainer, config, context);
+    }
 }
+
+
+
+
