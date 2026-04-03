@@ -1,6 +1,19 @@
-```java
-// ======================= ENUM =======================
+// ====================== PACKAGE & IMPORTS ======================
+package com.citi.rulefabricator.constraints.impl.data.table.template;
 
+import com.citi.rulefabricator.constraints.impl.data.table.template.config.*;
+import com.fasterxml.jackson.annotation.*;
+import org.springframework.stereotype.*;
+import org.springframework.beans.factory.annotation.*;
+import org.springframework.http.*;
+import org.springframework.web.client.RestTemplate;
+
+import java.io.File;
+import java.util.*;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+
+// ====================== ENUM ======================
 public enum SourceType {
     NAS,
     API;
@@ -10,30 +23,71 @@ public enum SourceType {
     }
 }
 
-
-// ======================= BASE SOURCE CONFIG =======================
-
-import com.fasterxml.jackson.annotation.JsonTypeInfo;
-
+// ====================== BASE CONFIG ======================
 @JsonTypeInfo(
         use = JsonTypeInfo.Id.NAME,
-        include = JsonTypeInfo.As.EXTERNAL_PROPERTY,
+        include = JsonTypeInfo.As.PROPERTY,
         property = "sourceType"
 )
-public abstract class SourceConfig {
-
+@JsonSubTypes({
+        @JsonSubTypes.Type(value = NasSourceConfig.class, name = "NAS"),
+        @JsonSubTypes.Type(value = ApiSourceConfig.class, name = "API")
+})
+abstract class BaseSourceConfig {
     public abstract SourceType getType();
-
-    public abstract SourceValidatorStrategy getStrategy();
 }
 
-
-// ======================= NAS CONFIG =======================
-
-public class NasSourceConfig extends SourceConfig {
+// ====================== NAS CONFIG ======================
+@JsonTypeName("NAS")
+class NasSourceConfig extends BaseSourceConfig {
 
     private String filePath;
-    private String fileType;
+
+    @Override
+    public SourceType getType() {
+        return SourceType.NAS;
+    }
+
+    public String getFilePath() {
+        return filePath;
+    }
+
+    public void setFilePath(String filePath) {
+        this.filePath = filePath;
+    }
+}
+
+// ====================== API CONFIG ======================
+@JsonTypeName("API")
+class ApiSourceConfig extends BaseSourceConfig {
+
+    private String applicationId;
+    private String moduleName;
+    private String endpointName;
+    private String payloadProviderClass;
+
+    @Override
+    public SourceType getType() {
+        return SourceType.API;
+    }
+
+    public String getApplicationId() { return applicationId; }
+    public String getModuleName() { return moduleName; }
+    public String getEndpointName() { return endpointName; }
+    public String getPayloadProviderClass() { return payloadProviderClass; }
+}
+
+// ====================== TEMPLATE SOURCE ======================
+interface TemplateSource<T extends BaseSourceConfig> {
+
+    SourceType getType();
+
+    File fetchTemplate(T config, ConstraintContext context);
+}
+
+// ====================== NAS SOURCE ======================
+@Component
+class NASSource implements TemplateSource<NasSourceConfig> {
 
     @Override
     public SourceType getType() {
@@ -41,26 +95,34 @@ public class NasSourceConfig extends SourceConfig {
     }
 
     @Override
-    public SourceValidatorStrategy getStrategy() {
-        return new NasSourceValidatorStrategy();
-    }
+    public File fetchTemplate(NasSourceConfig config, ConstraintContext context) {
 
-    public String getFilePath() {
-        return filePath;
-    }
+        if (config.getFilePath() == null) {
+            throw new IllegalArgumentException("File path is null");
+        }
 
-    public String getFileType() {
-        return fileType;
+        File file = new File(config.getFilePath());
+
+        if (!file.exists()) {
+            throw new RuntimeException("File not found: " + config.getFilePath());
+        }
+
+        return file;
     }
 }
 
+// ====================== API SOURCE ======================
+@Component
+class APISource implements TemplateSource<ApiSourceConfig> {
 
-// ======================= API CONFIG =======================
+    @Autowired
+    private RequestBuilderFactory requestBuilderFactory;
 
-public class APISourceConfig extends SourceConfig {
+    @Autowired
+    private RestTemplate restTemplate;
 
-    private String url;
-    private String method;
+    @Autowired
+    private FileUtil fileUtil;
 
     @Override
     public SourceType getType() {
@@ -68,169 +130,162 @@ public class APISourceConfig extends SourceConfig {
     }
 
     @Override
-    public SourceValidatorStrategy getStrategy() {
-        return new ApiSourceValidatorStrategy();
-    }
+    public File fetchTemplate(ApiSourceConfig config, ConstraintContext context) {
 
-    public String getUrl() {
-        return url;
-    }
+        BaseRequestBuilder builder =
+                requestBuilderFactory.getProvider(config.getPayloadProviderClass());
 
-    public String getMethod() {
-        return method;
+        ResponseEntity<byte[]> response =
+                restTemplate.exchange(
+                        config.getEndpointName(),
+                        HttpMethod.POST,
+                        builder.buildPayload(context.getInput()),
+                        byte[].class
+                );
+
+        String filePath = fileUtil.writeToFile(
+                response.getBody(),
+                context.getMasterRequestId().toString()
+        );
+
+        return new File(filePath);
     }
 }
 
+// ====================== PROVIDER ======================
+@Component
+class TemplateSourceProvider {
 
-// ======================= MAIN CONFIG =======================
+    private final Map<SourceType, TemplateSource<?>> sourceMap;
 
-import com.fasterxml.jackson.annotation.JsonCreator;
-import com.fasterxml.jackson.annotation.JsonProperty;
-
-public class ExcelTemplateConfig extends RowConstraintConfig {
-
-    private SourceType sourceType;
-    private SourceConfig sourceConfig;
-
-    @JsonCreator
-    public ExcelTemplateConfig(
-            @JsonProperty("msgKey") String msgKey,
-            @JsonProperty("sourceType") String sourceType,
-            @JsonProperty("sourceConfig") SourceConfig sourceConfig
-    ) {
-        super(msgKey);
-        this.sourceType = SourceType.from(sourceType);
-        this.sourceConfig = sourceConfig;
-
-        validate();
+    @Autowired
+    public TemplateSourceProvider(List<TemplateSource<?>> sources) {
+        this.sourceMap = sources.stream()
+                .collect(Collectors.toMap(
+                        TemplateSource::getType,
+                        Function.identity()
+                ));
     }
 
-    private void validate() {
-        if (sourceConfig == null) {
-            throw new IllegalArgumentException("sourceConfig cannot be null");
+    @SuppressWarnings("unchecked")
+    public <T extends BaseSourceConfig> TemplateSource<T> get(SourceType type) {
+        return (TemplateSource<T>) sourceMap.get(type);
+    }
+}
+
+// ====================== SERVICE ======================
+@Service
+class TemplateService {
+
+    @Autowired
+    private TemplateSourceProvider provider;
+
+    public <T extends BaseSourceConfig> File getTemplate(
+            T config,
+            ConstraintContext context) {
+
+        return provider.get(config.getType())
+                       .fetchTemplate(config, context);
+    }
+}
+
+// ====================== STRATEGY ======================
+interface SourceValidatorStrategy<T extends BaseSourceConfig> {
+
+    void validate(
+            T config,
+            TableConstraintInputDTO input,
+            TypeWiseConstraintFailures failureContainer,
+            ConstraintContext context
+    );
+}
+
+// ====================== FACTORY ======================
+@Component
+class SourceValidatorStrategyFactory {
+
+    private final Map<String, SourceValidatorStrategy<? extends BaseSourceConfig>> strategies;
+
+    public SourceValidatorStrategyFactory(
+            Map<String, SourceValidatorStrategy<? extends BaseSourceConfig>> strategies) {
+        this.strategies = strategies;
+    }
+
+    @SuppressWarnings("unchecked")
+    public <T extends BaseSourceConfig> SourceValidatorStrategy<T> getStrategy(SourceType type) {
+
+        SourceValidatorStrategy<?> strategy = strategies.get(type.name());
+
+        if (strategy == null) {
+            throw new IllegalArgumentException("No strategy found for " + type);
         }
 
-        if (!sourceType.equals(sourceConfig.getType())) {
-            throw new IllegalArgumentException("Mismatch between sourceType and sourceConfig");
-        }
-    }
-
-    public SourceType getSourceType() {
-        return sourceType;
-    }
-
-    public SourceConfig getSourceConfig() {
-        return sourceConfig;
+        return (SourceValidatorStrategy<T>) strategy;
     }
 }
 
+// ====================== NAS VALIDATOR ======================
+@Component("NAS")
+class NasSourceValidator implements SourceValidatorStrategy<NasSourceConfig> {
 
-// ======================= STRATEGY INTERFACE =======================
+    @Autowired
+    private TemplateService templateService;
 
-public interface SourceValidatorStrategy<T extends SourceConfig> {
-
-    void validate(T config,
-                  TableConstraintInputDTO input,
-                  TypeWiseConstraintFailures failureContainer);
-}
-
-
-// ======================= NAS STRATEGY =======================
-
-public class NasSourceValidatorStrategy
-        implements SourceValidatorStrategy<NasSourceConfig> {
+    @Autowired
+    private ExcelLockedCellValidator excelLockedCellValidator;
 
     @Override
-    public void validate(NasSourceConfig config,
-                         TableConstraintInputDTO input,
-                         TypeWiseConstraintFailures failureContainer) {
+    public void validate(
+            NasSourceConfig config,
+            TableConstraintInputDTO input,
+            TypeWiseConstraintFailures failureContainer,
+            ConstraintContext context) {
 
-        System.out.println("Validating NAS file: " + config.getFilePath());
+        File templateFile = templateService.getTemplate(config, context);
+
+        File uploadedFile = getUploadedFile(input, context);
+
+        excelLockedCellValidator.compareLockedCells(uploadedFile, templateFile);
     }
-}
 
-
-// ======================= API STRATEGY =======================
-
-public class ApiSourceValidatorStrategy
-        implements SourceValidatorStrategy<APISourceConfig> {
-
-    @Override
-    public void validate(APISourceConfig config,
-                         TableConstraintInputDTO input,
-                         TypeWiseConstraintFailures failureContainer) {
-
-        System.out.println("Validating API: " + config.getUrl());
+    private File getUploadedFile(TableConstraintInputDTO input, ConstraintContext context) {
+        return new File("uploaded.xlsx"); // replace with your logic
     }
 }
 
+// ====================== API VALIDATOR ======================
+@Component("API")
+class ApiSourceValidator implements SourceValidatorStrategy<ApiSourceConfig> {
 
-// ======================= EXCEL TEMPLATE VALIDATOR =======================
+    @Autowired
+    private TemplateService templateService;
 
-public class ExcelTemplateValidator extends
-        ChainableBaseConstraintValidator<TableConstraintInputDTO,
-                                         ExcelTemplateConfig,
-                                         TypeWiseConstraintFailures>
-        implements ConstraintContextAware {
-
-    private ConstraintContext context;
-
-    public ExcelTemplateValidator(ExcelTemplateConfig config) {
-        super(config);
-    }
+    @Autowired
+    private ExcelLockedCellValidator excelLockedCellValidator;
 
     @Override
-    public void setContext(ConstraintContext context) {
-        this.context = context;
+    public void validate(
+            ApiSourceConfig config,
+            TableConstraintInputDTO input,
+            TypeWiseConstraintFailures failureContainer,
+            ConstraintContext context) {
+
+        File templateFile = templateService.getTemplate(config, context);
+
+        File uploadedFile = getUploadedFile(input, context);
+
+        excelLockedCellValidator.compareLockedCells(uploadedFile, templateFile);
     }
 
-    @Override
-    public ConstraintContext getContext() {
-        return context;
-    }
-
-    @Override
-    public void validate(TableConstraintInputDTO object,
-                         TypeWiseConstraintFailures failureContainer) {
-
-        ExcelTemplateConfig config = getConfig();
-
-        if (config == null || config.getSourceConfig() == null) {
-            throw new IllegalArgumentException("Invalid ExcelTemplateConfig");
-        }
-
-        SourceConfig sourceConfig = config.getSourceConfig();
-
-        SourceValidatorStrategy strategy = sourceConfig.getStrategy();
-
-        strategy.validate(sourceConfig, object, failureContainer);
+    private File getUploadedFile(TableConstraintInputDTO input, ConstraintContext context) {
+        return new File("uploaded.xlsx"); // replace with your logic
     }
 }
 
+// ====================== USAGE (REFERENCE) ======================
+/*
+SourceValidatorStrategy strategy =
+        sourceValidatorStrategyFactory.getStrategy(baseSourceConfig.getType());
 
-// ======================= JACKSON REGISTRATION MODULE =======================
-
-import com.fasterxml.jackson.databind.module.SimpleModule;
-import com.fasterxml.jackson.databind.jsontype.NamedType;
-
-import java.util.ArrayList;
-import java.util.Collection;
-
-public class ConstraintConfigSubtypeRegistrationModule extends SimpleModule {
-
-    @Override
-    public void setupModule(SetupContext context) {
-        super.setupModule(context);
-
-        Collection<NamedType> allNamedTypes = new ArrayList<>();
-
-        // existing registrations...
-
-        // 🔥 ADD THESE
-        allNamedTypes.add(new NamedType(NasSourceConfig.class, "NAS"));
-        allNamedTypes.add(new NamedType(APISourceConfig.class, "API"));
-
-        context.registerSubtypes(allNamedTypes.toArray(new NamedType[0]));
-    }
-}
-```
+strategy.validate(baseSourceConfig, input, failureContainer, context);
+*/
