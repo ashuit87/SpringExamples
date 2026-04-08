@@ -4,7 +4,6 @@ public class PostWorkflowApiExecutor implements PostWorkflowProcessService {
     private static final Logger LOGGER = LoggerFactory.getLogger(PostWorkflowApiExecutor.class);
 
     private static final String API_RESPONSE = "apiResponse";
-    private static final String ERROR_WHILE_PROCESSING_API_RESPONSE = "Error while processing API response";
 
     private final RuleDefService ruleDefService;
     private final ObjectMapper objectMapper;
@@ -33,8 +32,6 @@ public class PostWorkflowApiExecutor implements PostWorkflowProcessService {
     @Override
     public void execute(Map<String, Object> executionConfig) {
 
-        LOGGER.info("Starting PostWorkflowApiExecutor with executionConfig: {}", executionConfig);
-
         long mapDefId = (Long) executionConfig.get(ApplicationConstants.MAP_DEF_ID);
         String createdBy = (String) executionConfig.get(ApplicationConstants.CREATED_BY);
         long masterId = (Long) executionConfig.get(ApplicationConstants.MASTER_ID);
@@ -48,6 +45,9 @@ public class PostWorkflowApiExecutor implements PostWorkflowProcessService {
 
         List<ApiConfig> apiCallSequence = apiExecutorConfig.getApiCallSequence();
         String executionMode = apiExecutorConfig.getExecutionMode();
+
+        // 🔥 NEW FLAG
+        boolean isCheckForDbSyncWait = apiExecutorConfig.isCheckForDbSyncWait();
 
         UserDTO user = new UserDTO.UserBuilder(createdBy)
                 .addPermissionManager(PermissionDTO.APPROVAL_TYPE.AUTO)
@@ -64,47 +64,70 @@ public class PostWorkflowApiExecutor implements PostWorkflowProcessService {
                 masterId
         );
 
-        // ========================= DB SYNC FIRST =========================
+        // ========================= FLOW CONTROL =========================
 
-        checkForDBSyncWithStatus(masterId, apiExecutorConfig.getDbSyncWaitTimeInMinutes())
-                .thenAccept(isCompleted -> {
+        if (isCheckForDbSyncWait) {
 
-                    if (Boolean.TRUE.equals(isCompleted)) {
+            LOGGER.info("DB Sync wait enabled. Waiting before API execution...");
 
-                        LOGGER.info("DB Sync completed. Starting API execution...");
+            checkForDBSyncWithStatus(masterId, apiExecutorConfig.getDbSyncWaitTimeInMinutes())
+                    .thenAccept(isCompleted -> {
 
-                        if ("PARALLEL".equalsIgnoreCase(executionMode)) {
-                            executeInParallel(ruleDef, apiCallSequence, executionConfig, task, user);
+                        if (Boolean.TRUE.equals(isCompleted)) {
+
+                            LOGGER.info("DB Sync completed. Proceeding with API execution...");
+
+                            triggerExecution(ruleDef, apiCallSequence, executionConfig, task, user, executionMode);
+
                         } else {
-                            executeSequentially(ruleDef, apiCallSequence, executionConfig, task, user);
+
+                            LOGGER.error("DB Sync failed. Skipping API execution.");
+
+                            taskService.updateTaskForFailureWithDtlMsg(
+                                    task.get_id(),
+                                    "DB Sync not completed",
+                                    null,
+                                    user
+                            );
                         }
 
-                    } else {
+                    })
+                    .exceptionally(ex -> {
 
-                        LOGGER.error("DB Sync failed. Skipping API execution.");
+                        LOGGER.error("Exception while waiting for DB Sync", ex);
 
                         taskService.updateTaskForFailureWithDtlMsg(
                                 task.get_id(),
-                                "DB Sync not completed",
-                                null,
+                                "Exception while waiting for DB Sync",
+                                ex.getMessage(),
                                 user
                         );
-                    }
 
-                })
-                .exceptionally(ex -> {
+                        return null;
+                    });
 
-                    LOGGER.error("Exception while waiting for DB Sync", ex);
+        } else {
 
-                    taskService.updateTaskForFailureWithDtlMsg(
-                            task.get_id(),
-                            "Exception while waiting for DB Sync",
-                            ex.getMessage(),
-                            user
-                    );
+            LOGGER.info("DB Sync wait disabled. Directly executing APIs...");
 
-                    return null;
-                });
+            triggerExecution(ruleDef, apiCallSequence, executionConfig, task, user, executionMode);
+        }
+    }
+
+    // ========================= EXECUTION SWITCH =========================
+
+    private void triggerExecution(RuleDef ruleDef,
+                                  List<ApiConfig> apiCallSequence,
+                                  Map<String, Object> executionConfig,
+                                  TaskDTO task,
+                                  UserDTO user,
+                                  String executionMode) {
+
+        if ("PARALLEL".equalsIgnoreCase(executionMode)) {
+            executeInParallel(ruleDef, apiCallSequence, executionConfig, task, user);
+        } else {
+            executeSequentially(ruleDef, apiCallSequence, executionConfig, task, user);
+        }
     }
 
     // ========================= SEQUENTIAL =========================
@@ -170,7 +193,7 @@ public class PostWorkflowApiExecutor implements PostWorkflowProcessService {
         Map<String, Object> requestMetaData =
                 ApiUtil.getRequestMetaDataInMap(masterId, ruleDef.getMapDefId(), ruleDef.getMapName(), seqs);
 
-        // ================= RECORD LEVEL =================
+        // RECORD LEVEL
         if (apiConfig.isRecordLevelScope()) {
 
             CompletableFuture<Void> seqChain = CompletableFuture.completedFuture(null);
@@ -186,17 +209,9 @@ public class PostWorkflowApiExecutor implements PostWorkflowProcessService {
                             .thenCompose(response -> {
 
                                 if (response.getStatusCode().is2xxSuccessful()) {
-
-                                    LOGGER.info("API SUCCESS [{}] seq {}", apiConfig.getName(), seq);
-
                                     processApiResponse(task, user).accept(response);
-
                                     return CompletableFuture.completedFuture(null);
-
                                 } else {
-
-                                    LOGGER.error("API FAILED [{}] seq {}", apiConfig.getName(), seq);
-
                                     return CompletableFuture.failedFuture(
                                             new RuntimeException("Failure at seq: " + seq)
                                     );
@@ -208,7 +223,7 @@ public class PostWorkflowApiExecutor implements PostWorkflowProcessService {
             return seqChain.thenApply(v -> null);
         }
 
-        // ================= NON RECORD LEVEL =================
+        // NON RECORD LEVEL
         ApiRequestPayloadDTO payload =
                 prepareRequestObject(apiConfig, requestMetaData, seqs);
 
@@ -216,20 +231,10 @@ public class PostWorkflowApiExecutor implements PostWorkflowProcessService {
                 .thenCompose(response -> {
 
                     if (response.getStatusCode().is2xxSuccessful()) {
-
-                        LOGGER.info("API SUCCESS [{}]", apiConfig.getName());
-
                         processApiResponse(task, user).accept(response);
-
                         return CompletableFuture.completedFuture(response);
-
                     } else {
-
-                        LOGGER.error("API FAILED [{}]", apiConfig.getName());
-
-                        return CompletableFuture.failedFuture(
-                                new RuntimeException("API failure")
-                        );
+                        return CompletableFuture.failedFuture(new RuntimeException("API failure"));
                     }
                 });
     }
@@ -248,8 +253,6 @@ public class PostWorkflowApiExecutor implements PostWorkflowProcessService {
                         (payload != null)
                                 ? new HttpEntity<>(payload, headers)
                                 : new HttpEntity<>(headers);
-
-                LOGGER.info("Calling API: {}", apiUrl);
 
                 return restTemplate.exchange(apiUrl, HttpMethod.POST, request, Object.class);
 
@@ -278,22 +281,17 @@ public class PostWorkflowApiExecutor implements PostWorkflowProcessService {
     private Consumer<ResponseEntity<Object>> processApiResponse(TaskDTO task,
                                                                UserDTO user) {
         return response -> {
-            try {
-                Map<String, Object> output = new HashMap<>();
-                output.put(API_RESPONSE, response.getBody());
+            Map<String, Object> output = new HashMap<>();
+            output.put(API_RESPONSE, response.getBody());
 
-                task.setOutput(output);
-                task.setStatus(TaskDTO.TaskStatus.COMPLETED);
+            task.setOutput(output);
+            task.setStatus(TaskDTO.TaskStatus.COMPLETED);
 
-                taskService.update(task, user);
-
-            } catch (Exception e) {
-                throw new RuntimeException(e);
-            }
+            taskService.update(task, user);
         };
     }
 
-    // ========================= DB SYNC (YOUR ORIGINAL LOGIC) =========================
+    // ========================= DB SYNC =========================
 
     public CompletableFuture<Boolean> checkForDBSyncWithStatus(long masterId, long timeoutInMinutes) {
 
@@ -306,7 +304,6 @@ public class PostWorkflowApiExecutor implements PostWorkflowProcessService {
                 try {
 
                     if (System.currentTimeMillis() - startTime > timeoutMillis) {
-                        LOGGER.info("DB Sync timeout for masterId: {}", masterId);
                         throw new RuntimeException("DB Sync timeout");
                     }
 
@@ -320,17 +317,14 @@ public class PostWorkflowApiExecutor implements PostWorkflowProcessService {
 
                         String status = dto.getStatus().name();
 
-                        if ("COMPLETED".equalsIgnoreCase(status)) {
-                            return true;
-                        } else if ("FAILED".equalsIgnoreCase(status)
-                                || "COMPLETED_WITH_ERRORS".equalsIgnoreCase(status)) {
-                            return false;
-                        }
+                        if ("COMPLETED".equalsIgnoreCase(status)) return true;
+                        if ("FAILED".equalsIgnoreCase(status)
+                                || "COMPLETED_WITH_ERRORS".equalsIgnoreCase(status)) return false;
                     }
 
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
-                    throw new RuntimeException("Interrupted while waiting for DB sync", e);
+                    throw new RuntimeException(e);
                 }
             }
         });
