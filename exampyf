@@ -1,291 +1,338 @@
-// ====================== PACKAGE & IMPORTS ======================
-package com.citi.rulefabricator.constraints.impl.data.table.template;
+@Service("postWorkflowApiExecutor")
+public class PostWorkflowApiExecutor implements PostWorkflowProcessService {
 
-import com.citi.rulefabricator.constraints.impl.data.table.template.config.*;
-import com.fasterxml.jackson.annotation.*;
-import org.springframework.stereotype.*;
-import org.springframework.beans.factory.annotation.*;
-import org.springframework.http.*;
-import org.springframework.web.client.RestTemplate;
+    private static final Logger LOGGER = LoggerFactory.getLogger(PostWorkflowApiExecutor.class);
 
-import java.io.File;
-import java.util.*;
-import java.util.function.Function;
-import java.util.stream.Collectors;
+    private static final String API_RESPONSE = "apiResponse";
+    private static final String ERROR_WHILE_PROCESSING_API_RESPONSE = "Error while processing API response";
 
-// ====================== ENUM ======================
-public enum SourceType {
-    NAS,
-    API;
+    private final RuleDefService ruleDefService;
+    private final ObjectMapper objectMapper;
+    private final TaskService taskService;
+    private final RestTemplate restTemplate;
+    private final ApiRequestBuilder apiRequestBuilder;
+    private final ApplicationApiRegistryService applicationApiRegistryService;
 
-    public static SourceType from(String value) {
-        return SourceType.valueOf(value.toUpperCase());
+    public PostWorkflowApiExecutor(RuleDefService ruleDefService,
+                                   ApiRequestBuilder apiRequestBuilder,
+                                   RestTemplate restTemplate,
+                                   TaskService taskService,
+                                   ObjectMapper objectMapper,
+                                   ApplicationApiRegistryService applicationApiRegistryService) {
+
+        this.ruleDefService = ruleDefService;
+        this.apiRequestBuilder = apiRequestBuilder;
+        this.restTemplate = restTemplate;
+        this.taskService = taskService;
+        this.objectMapper = objectMapper;
+        this.applicationApiRegistryService = applicationApiRegistryService;
     }
-}
 
-// ====================== BASE CONFIG ======================
-@JsonTypeInfo(
-        use = JsonTypeInfo.Id.NAME,
-        include = JsonTypeInfo.As.PROPERTY,
-        property = "sourceType"
-)
-@JsonSubTypes({
-        @JsonSubTypes.Type(value = NasSourceConfig.class, name = "NAS"),
-        @JsonSubTypes.Type(value = ApiSourceConfig.class, name = "API")
-})
-abstract class BaseSourceConfig {
-    public abstract SourceType getType();
-}
-
-// ====================== NAS CONFIG ======================
-@JsonTypeName("NAS")
-class NasSourceConfig extends BaseSourceConfig {
-
-    private String filePath;
+    // ========================= EXECUTE =========================
 
     @Override
-    public SourceType getType() {
-        return SourceType.NAS;
-    }
+    public void execute(Map<String, Object> executionConfig) {
 
-    public String getFilePath() {
-        return filePath;
-    }
+        LOGGER.info("Starting PostWorkflowApiExecutor with executionConfig: {}", executionConfig);
 
-    public void setFilePath(String filePath) {
-        this.filePath = filePath;
-    }
-}
+        long mapDefId = (Long) executionConfig.get(ApplicationConstants.MAP_DEF_ID);
+        String createdBy = (String) executionConfig.get(ApplicationConstants.CREATED_BY);
+        long masterId = (Long) executionConfig.get(ApplicationConstants.MASTER_ID);
 
-// ====================== API CONFIG ======================
-@JsonTypeName("API")
-class ApiSourceConfig extends BaseSourceConfig {
+        RuleDef ruleDef = ruleDefService.findOneByMapId(mapDefId);
 
-    private String applicationId;
-    private String moduleName;
-    private String endpointName;
-    private String payloadProviderClass;
-
-    @Override
-    public SourceType getType() {
-        return SourceType.API;
-    }
-
-    public String getApplicationId() { return applicationId; }
-    public String getModuleName() { return moduleName; }
-    public String getEndpointName() { return endpointName; }
-    public String getPayloadProviderClass() { return payloadProviderClass; }
-}
-
-// ====================== TEMPLATE SOURCE ======================
-interface TemplateSource<T extends BaseSourceConfig> {
-
-    SourceType getType();
-
-    File fetchTemplate(T config, ConstraintContext context);
-}
-
-// ====================== NAS SOURCE ======================
-@Component
-class NASSource implements TemplateSource<NasSourceConfig> {
-
-    @Override
-    public SourceType getType() {
-        return SourceType.NAS;
-    }
-
-    @Override
-    public File fetchTemplate(NasSourceConfig config, ConstraintContext context) {
-
-        if (config.getFilePath() == null) {
-            throw new IllegalArgumentException("File path is null");
-        }
-
-        File file = new File(config.getFilePath());
-
-        if (!file.exists()) {
-            throw new RuntimeException("File not found: " + config.getFilePath());
-        }
-
-        return file;
-    }
-}
-
-// ====================== API SOURCE ======================
-@Component
-class APISource implements TemplateSource<ApiSourceConfig> {
-
-    @Autowired
-    private RequestBuilderFactory requestBuilderFactory;
-
-    @Autowired
-    private RestTemplate restTemplate;
-
-    @Autowired
-    private FileUtil fileUtil;
-
-    @Override
-    public SourceType getType() {
-        return SourceType.API;
-    }
-
-    @Override
-    public File fetchTemplate(ApiSourceConfig config, ConstraintContext context) {
-
-        BaseRequestBuilder builder =
-                requestBuilderFactory.getProvider(config.getPayloadProviderClass());
-
-        ResponseEntity<byte[]> response =
-                restTemplate.exchange(
-                        config.getEndpointName(),
-                        HttpMethod.POST,
-                        builder.buildPayload(context.getInput()),
-                        byte[].class
-                );
-
-        String filePath = fileUtil.writeToFile(
-                response.getBody(),
-                context.getMasterRequestId().toString()
+        ApiExecutorConfig apiExecutorConfig = objectMapper.convertValue(
+                ruleDef.getProcessWorkflowConfig().getConfig(),
+                ApiExecutorConfig.class
         );
 
-        return new File(filePath);
-    }
-}
+        List<ApiConfig> apiCallSequence = apiExecutorConfig.getApiCallSequence();
+        String executionMode = apiExecutorConfig.getExecutionMode();
 
-// ====================== PROVIDER ======================
-@Component
-class TemplateSourceProvider {
+        UserDTO user = new UserDTO.UserBuilder(createdBy)
+                .addPermissionManager(PermissionDTO.APPROVAL_TYPE.AUTO)
+                .build();
 
-    private final Map<SourceType, TemplateSource<?>> sourceMap;
+        TaskDTO task = taskService.createNewTask(
+                TaskDTO.TaskType.EXTERNAL_API_CALL,
+                TaskDTO.TaskCategory.MAP_DEF,
+                mapDefId,
+                null,
+                TaskDTO.TaskSource.ONDEMAND,
+                user,
+                TaskDTO.TaskStatus.IN_PROGRESS,
+                masterId
+        );
 
-    @Autowired
-    public TemplateSourceProvider(List<TemplateSource<?>> sources) {
-        this.sourceMap = sources.stream()
-                .collect(Collectors.toMap(
-                        TemplateSource::getType,
-                        Function.identity()
-                ));
-    }
+        // ========================= DB SYNC FIRST =========================
 
-    @SuppressWarnings("unchecked")
-    public <T extends BaseSourceConfig> TemplateSource<T> get(SourceType type) {
-        return (TemplateSource<T>) sourceMap.get(type);
-    }
-}
+        checkForDBSyncWithStatus(masterId, apiExecutorConfig.getDbSyncWaitTimeInMinutes())
+                .thenAccept(isCompleted -> {
 
-// ====================== SERVICE ======================
-@Service
-class TemplateService {
+                    if (Boolean.TRUE.equals(isCompleted)) {
 
-    @Autowired
-    private TemplateSourceProvider provider;
+                        LOGGER.info("DB Sync completed. Starting API execution...");
 
-    public <T extends BaseSourceConfig> File getTemplate(
-            T config,
-            ConstraintContext context) {
+                        if ("PARALLEL".equalsIgnoreCase(executionMode)) {
+                            executeInParallel(ruleDef, apiCallSequence, executionConfig, task, user);
+                        } else {
+                            executeSequentially(ruleDef, apiCallSequence, executionConfig, task, user);
+                        }
 
-        return provider.get(config.getType())
-                       .fetchTemplate(config, context);
-    }
-}
+                    } else {
 
-// ====================== STRATEGY ======================
-interface SourceValidatorStrategy<T extends BaseSourceConfig> {
+                        LOGGER.error("DB Sync failed. Skipping API execution.");
 
-    void validate(
-            T config,
-            TableConstraintInputDTO input,
-            TypeWiseConstraintFailures failureContainer,
-            ConstraintContext context
-    );
-}
+                        taskService.updateTaskForFailureWithDtlMsg(
+                                task.get_id(),
+                                "DB Sync not completed",
+                                null,
+                                user
+                        );
+                    }
 
-// ====================== FACTORY ======================
-@Component
-class SourceValidatorStrategyFactory {
+                })
+                .exceptionally(ex -> {
 
-    private final Map<String, SourceValidatorStrategy<? extends BaseSourceConfig>> strategies;
+                    LOGGER.error("Exception while waiting for DB Sync", ex);
 
-    public SourceValidatorStrategyFactory(
-            Map<String, SourceValidatorStrategy<? extends BaseSourceConfig>> strategies) {
-        this.strategies = strategies;
+                    taskService.updateTaskForFailureWithDtlMsg(
+                            task.get_id(),
+                            "Exception while waiting for DB Sync",
+                            ex.getMessage(),
+                            user
+                    );
+
+                    return null;
+                });
     }
 
-    @SuppressWarnings("unchecked")
-    public <T extends BaseSourceConfig> SourceValidatorStrategy<T> getStrategy(SourceType type) {
+    // ========================= SEQUENTIAL =========================
 
-        SourceValidatorStrategy<?> strategy = strategies.get(type.name());
+    private void executeSequentially(RuleDef ruleDef,
+                                     List<ApiConfig> apiCallSequence,
+                                     Map<String, Object> executionConfig,
+                                     TaskDTO task,
+                                     UserDTO user) {
 
-        if (strategy == null) {
-            throw new IllegalArgumentException("No strategy found for " + type);
+        CompletableFuture<Void> chain = CompletableFuture.completedFuture(null);
+
+        for (ApiConfig apiConfig : apiCallSequence) {
+            chain = chain.thenCompose(v ->
+                    buildApiPayloadAndCallService(ruleDef, apiConfig, executionConfig, task, user)
+                            .thenApply(res -> null)
+            );
         }
 
-        return (SourceValidatorStrategy<T>) strategy;
+        chain.exceptionally(ex -> {
+            LOGGER.error("Execution stopped (SEQUENTIAL mode)", ex);
+            return null;
+        });
+    }
+
+    // ========================= PARALLEL =========================
+
+    private void executeInParallel(RuleDef ruleDef,
+                                   List<ApiConfig> apiCallSequence,
+                                   Map<String, Object> executionConfig,
+                                   TaskDTO task,
+                                   UserDTO user) {
+
+        List<CompletableFuture<Void>> futures = apiCallSequence.stream()
+                .map(apiConfig ->
+                        buildApiPayloadAndCallService(ruleDef, apiConfig, executionConfig, task, user)
+                                .thenApply(res -> null)
+                                .exceptionally(ex -> {
+                                    LOGGER.error("API FAILED (parallel): {}", apiConfig.getName(), ex);
+                                    return null;
+                                })
+                )
+                .collect(Collectors.toList());
+
+        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
+                .thenRun(() -> LOGGER.info("All APIs executed (PARALLEL mode)"));
+    }
+
+    // ========================= CORE =========================
+
+    public CompletableFuture<ResponseEntity<Object>> buildApiPayloadAndCallService(
+            RuleDef ruleDef,
+            ApiConfig apiConfig,
+            Map<String, Object> executionConfig,
+            TaskDTO task,
+            UserDTO user) {
+
+        List<Long> seqs = (List<Long>) executionConfig.get(ApplicationConstants.SEQ);
+        long masterId = (Long) executionConfig.get(ApplicationConstants.MASTER_ID);
+
+        String apiUrl = buildUrl(apiConfig);
+
+        Map<String, Object> requestMetaData =
+                ApiUtil.getRequestMetaDataInMap(masterId, ruleDef.getMapDefId(), ruleDef.getMapName(), seqs);
+
+        // ================= RECORD LEVEL =================
+        if (apiConfig.isRecordLevelScope()) {
+
+            CompletableFuture<Void> seqChain = CompletableFuture.completedFuture(null);
+
+            for (Long seq : seqs) {
+
+                seqChain = seqChain.thenCompose(v -> {
+
+                    ApiRequestPayloadDTO payload =
+                            prepareRequestObject(apiConfig, requestMetaData, Arrays.asList(seq));
+
+                    return postRequest(apiUrl, payload)
+                            .thenCompose(response -> {
+
+                                if (response.getStatusCode().is2xxSuccessful()) {
+
+                                    LOGGER.info("API SUCCESS [{}] seq {}", apiConfig.getName(), seq);
+
+                                    processApiResponse(task, user).accept(response);
+
+                                    return CompletableFuture.completedFuture(null);
+
+                                } else {
+
+                                    LOGGER.error("API FAILED [{}] seq {}", apiConfig.getName(), seq);
+
+                                    return CompletableFuture.failedFuture(
+                                            new RuntimeException("Failure at seq: " + seq)
+                                    );
+                                }
+                            });
+                });
+            }
+
+            return seqChain.thenApply(v -> null);
+        }
+
+        // ================= NON RECORD LEVEL =================
+        ApiRequestPayloadDTO payload =
+                prepareRequestObject(apiConfig, requestMetaData, seqs);
+
+        return postRequest(apiUrl, payload)
+                .thenCompose(response -> {
+
+                    if (response.getStatusCode().is2xxSuccessful()) {
+
+                        LOGGER.info("API SUCCESS [{}]", apiConfig.getName());
+
+                        processApiResponse(task, user).accept(response);
+
+                        return CompletableFuture.completedFuture(response);
+
+                    } else {
+
+                        LOGGER.error("API FAILED [{}]", apiConfig.getName());
+
+                        return CompletableFuture.failedFuture(
+                                new RuntimeException("API failure")
+                        );
+                    }
+                });
+    }
+
+    // ========================= API CALL =========================
+
+    public CompletableFuture<ResponseEntity<Object>> postRequest(String apiUrl,
+                                                                  ApiRequestPayloadDTO payload) {
+
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                HttpHeaders headers = new HttpHeaders();
+                headers.setContentType(MediaType.APPLICATION_JSON);
+
+                HttpEntity<?> request =
+                        (payload != null)
+                                ? new HttpEntity<>(payload, headers)
+                                : new HttpEntity<>(headers);
+
+                LOGGER.info("Calling API: {}", apiUrl);
+
+                return restTemplate.exchange(apiUrl, HttpMethod.POST, request, Object.class);
+
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        });
+    }
+
+    // ========================= HELPERS =========================
+
+    public ApiRequestPayloadDTO prepareRequestObject(ApiConfig apiConfig,
+                                                     Map<String, Object> requestMetaData,
+                                                     List<Long> seqs) {
+        return apiRequestBuilder.buildRequestPayload(apiConfig, requestMetaData, seqs);
+    }
+
+    private String buildUrl(ApiConfig apiConfig) {
+        return applicationApiRegistryService.resolveUrl(
+                apiConfig.getUrlConfig().getDomain(),
+                apiConfig.getUrlConfig().getService(),
+                apiConfig.getUrlConfig().getOperation()
+        );
+    }
+
+    private Consumer<ResponseEntity<Object>> processApiResponse(TaskDTO task,
+                                                               UserDTO user) {
+        return response -> {
+            try {
+                Map<String, Object> output = new HashMap<>();
+                output.put(API_RESPONSE, response.getBody());
+
+                task.setOutput(output);
+                task.setStatus(TaskDTO.TaskStatus.COMPLETED);
+
+                taskService.update(task, user);
+
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        };
+    }
+
+    // ========================= DB SYNC (YOUR ORIGINAL LOGIC) =========================
+
+    public CompletableFuture<Boolean> checkForDBSyncWithStatus(long masterId, long timeoutInMinutes) {
+
+        return CompletableFuture.supplyAsync(() -> {
+
+            long startTime = System.currentTimeMillis();
+            long timeoutMillis = timeoutInMinutes * 60 * 1000;
+
+            while (true) {
+                try {
+
+                    if (System.currentTimeMillis() - startTime > timeoutMillis) {
+                        LOGGER.info("DB Sync timeout for masterId: {}", masterId);
+                        throw new RuntimeException("DB Sync timeout");
+                    }
+
+                    Thread.sleep(10000);
+
+                    Document doc = dbSyncDAOMongoImpl.findOneByMasterId(masterId);
+
+                    if (doc != null) {
+                        DBSyncQueueItemDTO dto =
+                                mongoUtil.documentToPojo(doc, DBSyncQueueItemDTO.class);
+
+                        String status = dto.getStatus().name();
+
+                        if ("COMPLETED".equalsIgnoreCase(status)) {
+                            return true;
+                        } else if ("FAILED".equalsIgnoreCase(status)
+                                || "COMPLETED_WITH_ERRORS".equalsIgnoreCase(status)) {
+                            return false;
+                        }
+                    }
+
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new RuntimeException("Interrupted while waiting for DB sync", e);
+                }
+            }
+        });
     }
 }
-
-// ====================== NAS VALIDATOR ======================
-@Component("NAS")
-class NasSourceValidator implements SourceValidatorStrategy<NasSourceConfig> {
-
-    @Autowired
-    private TemplateService templateService;
-
-    @Autowired
-    private ExcelLockedCellValidator excelLockedCellValidator;
-
-    @Override
-    public void validate(
-            NasSourceConfig config,
-            TableConstraintInputDTO input,
-            TypeWiseConstraintFailures failureContainer,
-            ConstraintContext context) {
-
-        File templateFile = templateService.getTemplate(config, context);
-
-        File uploadedFile = getUploadedFile(input, context);
-
-        excelLockedCellValidator.compareLockedCells(uploadedFile, templateFile);
-    }
-
-    private File getUploadedFile(TableConstraintInputDTO input, ConstraintContext context) {
-        return new File("uploaded.xlsx"); // replace with your logic
-    }
-}
-
-// ====================== API VALIDATOR ======================
-@Component("API")
-class ApiSourceValidator implements SourceValidatorStrategy<ApiSourceConfig> {
-
-    @Autowired
-    private TemplateService templateService;
-
-    @Autowired
-    private ExcelLockedCellValidator excelLockedCellValidator;
-
-    @Override
-    public void validate(
-            ApiSourceConfig config,
-            TableConstraintInputDTO input,
-            TypeWiseConstraintFailures failureContainer,
-            ConstraintContext context) {
-
-        File templateFile = templateService.getTemplate(config, context);
-
-        File uploadedFile = getUploadedFile(input, context);
-
-        excelLockedCellValidator.compareLockedCells(uploadedFile, templateFile);
-    }
-
-    private File getUploadedFile(TableConstraintInputDTO input, ConstraintContext context) {
-        return new File("uploaded.xlsx"); // replace with your logic
-    }
-}
-
-// ====================== USAGE (REFERENCE) ======================
-/*
-SourceValidatorStrategy strategy =
-        sourceValidatorStrategyFactory.getStrategy(baseSourceConfig.getType());
-
-strategy.validate(baseSourceConfig, input, failureContainer, context);
-*/
