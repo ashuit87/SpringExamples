@@ -1,332 +1,532 @@
-@Service("postWorkflowApiExecutor")
-public class PostWorkflowApiExecutor implements PostWorkflowProcessService {
+pom.xml
 
-    private static final Logger LOGGER = LoggerFactory.getLogger(PostWorkflowApiExecutor.class);
+Add these dependencies inside <dependencies>
 
-    private static final String API_RESPONSE = "apiResponse";
+<!-- Spring Boot Web -->
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-web</artifactId>
+</dependency>
 
-    private final RuleDefService ruleDefService;
-    private final ObjectMapper objectMapper;
-    private final TaskService taskService;
-    private final RestTemplate restTemplate;
-    private final ApiRequestBuilder apiRequestBuilder;
-    private final ApplicationApiRegistryService applicationApiRegistryService;
+<!-- Spring Boot Actuator -->
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-actuator</artifactId>
+</dependency>
 
-    public PostWorkflowApiExecutor(RuleDefService ruleDefService,
-                                   ApiRequestBuilder apiRequestBuilder,
-                                   RestTemplate restTemplate,
-                                   TaskService taskService,
-                                   ObjectMapper objectMapper,
-                                   ApplicationApiRegistryService applicationApiRegistryService) {
+<!-- Lombok -->
+<dependency>
+    <groupId>org.projectlombok</groupId>
+    <artifactId>lombok</artifactId>
+    <optional>true</optional>
+</dependency>
 
-        this.ruleDefService = ruleDefService;
-        this.apiRequestBuilder = apiRequestBuilder;
-        this.restTemplate = restTemplate;
-        this.taskService = taskService;
-        this.objectMapper = objectMapper;
-        this.applicationApiRegistryService = applicationApiRegistryService;
-    }
 
-    // ========================= EXECUTE =========================
+////////////////////////////////////////////////////////////
 
-    @Override
-    public void execute(Map<String, Object> executionConfig) {
 
-        long mapDefId = (Long) executionConfig.get(ApplicationConstants.MAP_DEF_ID);
-        String createdBy = (String) executionConfig.get(ApplicationConstants.CREATED_BY);
-        long masterId = (Long) executionConfig.get(ApplicationConstants.MASTER_ID);
+STEP 3
+FILE START
+src/main/resources/application.yml
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics,prometheus,threaddump
 
-        RuleDef ruleDef = ruleDefService.findOneByMapId(mapDefId);
+logging:
+  level:
+    root: INFO
 
-        ApiExecutorConfig apiExecutorConfig = objectMapper.convertValue(
-                ruleDef.getProcessWorkflowConfig().getConfig(),
-                ApiExecutorConfig.class
+
+/////////////////////////////////////////////////////////////
+
+STEP 4
+FILE START
+src/main/java/com/example/monitor/DiagnosticsMonitoringApplication.java
+package com.example.monitor;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.scheduling.annotation.EnableScheduling;
+
+@EnableScheduling
+@SpringBootApplication
+public class DiagnosticsMonitoringApplication {
+
+    public static void main(String[] args) {
+
+        SpringApplication.run(
+                DiagnosticsMonitoringApplication.class,
+                args
         );
-
-        List<ApiConfig> apiCallSequence = apiExecutorConfig.getApiCallSequence();
-        String executionMode = apiExecutorConfig.getExecutionMode();
-
-        // 🔥 NEW FLAG
-        boolean isCheckForDbSyncWait = apiExecutorConfig.isCheckForDbSyncWait();
-
-        UserDTO user = new UserDTO.UserBuilder(createdBy)
-                .addPermissionManager(PermissionDTO.APPROVAL_TYPE.AUTO)
-                .build();
-
-        TaskDTO task = taskService.createNewTask(
-                TaskDTO.TaskType.EXTERNAL_API_CALL,
-                TaskDTO.TaskCategory.MAP_DEF,
-                mapDefId,
-                null,
-                TaskDTO.TaskSource.ONDEMAND,
-                user,
-                TaskDTO.TaskStatus.IN_PROGRESS,
-                masterId
-        );
-
-        // ========================= FLOW CONTROL =========================
-
-        if (isCheckForDbSyncWait) {
-
-            LOGGER.info("DB Sync wait enabled. Waiting before API execution...");
-
-            checkForDBSyncWithStatus(masterId, apiExecutorConfig.getDbSyncWaitTimeInMinutes())
-                    .thenAccept(isCompleted -> {
-
-                        if (Boolean.TRUE.equals(isCompleted)) {
-
-                            LOGGER.info("DB Sync completed. Proceeding with API execution...");
-
-                            triggerExecution(ruleDef, apiCallSequence, executionConfig, task, user, executionMode);
-
-                        } else {
-
-                            LOGGER.error("DB Sync failed. Skipping API execution.");
-
-                            taskService.updateTaskForFailureWithDtlMsg(
-                                    task.get_id(),
-                                    "DB Sync not completed",
-                                    null,
-                                    user
-                            );
-                        }
-
-                    })
-                    .exceptionally(ex -> {
-
-                        LOGGER.error("Exception while waiting for DB Sync", ex);
-
-                        taskService.updateTaskForFailureWithDtlMsg(
-                                task.get_id(),
-                                "Exception while waiting for DB Sync",
-                                ex.getMessage(),
-                                user
-                        );
-
-                        return null;
-                    });
-
-        } else {
-
-            LOGGER.info("DB Sync wait disabled. Directly executing APIs...");
-
-            triggerExecution(ruleDef, apiCallSequence, executionConfig, task, user, executionMode);
-        }
-    }
-
-    // ========================= EXECUTION SWITCH =========================
-
-    private void triggerExecution(RuleDef ruleDef,
-                                  List<ApiConfig> apiCallSequence,
-                                  Map<String, Object> executionConfig,
-                                  TaskDTO task,
-                                  UserDTO user,
-                                  String executionMode) {
-
-        if ("PARALLEL".equalsIgnoreCase(executionMode)) {
-            executeInParallel(ruleDef, apiCallSequence, executionConfig, task, user);
-        } else {
-            executeSequentially(ruleDef, apiCallSequence, executionConfig, task, user);
-        }
-    }
-
-    // ========================= SEQUENTIAL =========================
-
-    private void executeSequentially(RuleDef ruleDef,
-                                     List<ApiConfig> apiCallSequence,
-                                     Map<String, Object> executionConfig,
-                                     TaskDTO task,
-                                     UserDTO user) {
-
-        CompletableFuture<Void> chain = CompletableFuture.completedFuture(null);
-
-        for (ApiConfig apiConfig : apiCallSequence) {
-            chain = chain.thenCompose(v ->
-                    buildApiPayloadAndCallService(ruleDef, apiConfig, executionConfig, task, user)
-                            .thenApply(res -> null)
-            );
-        }
-
-        chain.exceptionally(ex -> {
-            LOGGER.error("Execution stopped (SEQUENTIAL mode)", ex);
-            return null;
-        });
-    }
-
-    // ========================= PARALLEL =========================
-
-    private void executeInParallel(RuleDef ruleDef,
-                                   List<ApiConfig> apiCallSequence,
-                                   Map<String, Object> executionConfig,
-                                   TaskDTO task,
-                                   UserDTO user) {
-
-        List<CompletableFuture<Void>> futures = apiCallSequence.stream()
-                .map(apiConfig ->
-                        buildApiPayloadAndCallService(ruleDef, apiConfig, executionConfig, task, user)
-                                .thenApply(res -> null)
-                                .exceptionally(ex -> {
-                                    LOGGER.error("API FAILED (parallel): {}", apiConfig.getName(), ex);
-                                    return null;
-                                })
-                )
-                .collect(Collectors.toList());
-
-        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
-                .thenRun(() -> LOGGER.info("All APIs executed (PARALLEL mode)"));
-    }
-
-    // ========================= CORE =========================
-
-    public CompletableFuture<ResponseEntity<Object>> buildApiPayloadAndCallService(
-            RuleDef ruleDef,
-            ApiConfig apiConfig,
-            Map<String, Object> executionConfig,
-            TaskDTO task,
-            UserDTO user) {
-
-        List<Long> seqs = (List<Long>) executionConfig.get(ApplicationConstants.SEQ);
-        long masterId = (Long) executionConfig.get(ApplicationConstants.MASTER_ID);
-
-        String apiUrl = buildUrl(apiConfig);
-
-        Map<String, Object> requestMetaData =
-                ApiUtil.getRequestMetaDataInMap(masterId, ruleDef.getMapDefId(), ruleDef.getMapName(), seqs);
-
-        // RECORD LEVEL
-        if (apiConfig.isRecordLevelScope()) {
-
-            CompletableFuture<Void> seqChain = CompletableFuture.completedFuture(null);
-
-            for (Long seq : seqs) {
-
-                seqChain = seqChain.thenCompose(v -> {
-
-                    ApiRequestPayloadDTO payload =
-                            prepareRequestObject(apiConfig, requestMetaData, Arrays.asList(seq));
-
-                    return postRequest(apiUrl, payload)
-                            .thenCompose(response -> {
-
-                                if (response.getStatusCode().is2xxSuccessful()) {
-                                    processApiResponse(task, user).accept(response);
-                                    return CompletableFuture.completedFuture(null);
-                                } else {
-                                    return CompletableFuture.failedFuture(
-                                            new RuntimeException("Failure at seq: " + seq)
-                                    );
-                                }
-                            });
-                });
-            }
-
-            return seqChain.thenApply(v -> null);
-        }
-
-        // NON RECORD LEVEL
-        ApiRequestPayloadDTO payload =
-                prepareRequestObject(apiConfig, requestMetaData, seqs);
-
-        return postRequest(apiUrl, payload)
-                .thenCompose(response -> {
-
-                    if (response.getStatusCode().is2xxSuccessful()) {
-                        processApiResponse(task, user).accept(response);
-                        return CompletableFuture.completedFuture(response);
-                    } else {
-                        return CompletableFuture.failedFuture(new RuntimeException("API failure"));
-                    }
-                });
-    }
-
-    // ========================= API CALL =========================
-
-    public CompletableFuture<ResponseEntity<Object>> postRequest(String apiUrl,
-                                                                  ApiRequestPayloadDTO payload) {
-
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                HttpHeaders headers = new HttpHeaders();
-                headers.setContentType(MediaType.APPLICATION_JSON);
-
-                HttpEntity<?> request =
-                        (payload != null)
-                                ? new HttpEntity<>(payload, headers)
-                                : new HttpEntity<>(headers);
-
-                return restTemplate.exchange(apiUrl, HttpMethod.POST, request, Object.class);
-
-            } catch (Exception e) {
-                throw new RuntimeException(e);
-            }
-        });
-    }
-
-    // ========================= HELPERS =========================
-
-    public ApiRequestPayloadDTO prepareRequestObject(ApiConfig apiConfig,
-                                                     Map<String, Object> requestMetaData,
-                                                     List<Long> seqs) {
-        return apiRequestBuilder.buildRequestPayload(apiConfig, requestMetaData, seqs);
-    }
-
-    private String buildUrl(ApiConfig apiConfig) {
-        return applicationApiRegistryService.resolveUrl(
-                apiConfig.getUrlConfig().getDomain(),
-                apiConfig.getUrlConfig().getService(),
-                apiConfig.getUrlConfig().getOperation()
-        );
-    }
-
-    private Consumer<ResponseEntity<Object>> processApiResponse(TaskDTO task,
-                                                               UserDTO user) {
-        return response -> {
-            Map<String, Object> output = new HashMap<>();
-            output.put(API_RESPONSE, response.getBody());
-
-            task.setOutput(output);
-            task.setStatus(TaskDTO.TaskStatus.COMPLETED);
-
-            taskService.update(task, user);
-        };
-    }
-
-    // ========================= DB SYNC =========================
-
-    public CompletableFuture<Boolean> checkForDBSyncWithStatus(long masterId, long timeoutInMinutes) {
-
-        return CompletableFuture.supplyAsync(() -> {
-
-            long startTime = System.currentTimeMillis();
-            long timeoutMillis = timeoutInMinutes * 60 * 1000;
-
-            while (true) {
-                try {
-
-                    if (System.currentTimeMillis() - startTime > timeoutMillis) {
-                        throw new RuntimeException("DB Sync timeout");
-                    }
-
-                    Thread.sleep(10000);
-
-                    Document doc = dbSyncDAOMongoImpl.findOneByMasterId(masterId);
-
-                    if (doc != null) {
-                        DBSyncQueueItemDTO dto =
-                                mongoUtil.documentToPojo(doc, DBSyncQueueItemDTO.class);
-
-                        String status = dto.getStatus().name();
-
-                        if ("COMPLETED".equalsIgnoreCase(status)) return true;
-                        if ("FAILED".equalsIgnoreCase(status)
-                                || "COMPLETED_WITH_ERRORS".equalsIgnoreCase(status)) return false;
-                    }
-
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    throw new RuntimeException(e);
-                }
-            }
-        });
     }
 }
+
+
+//////////////////////////////////////////////////////////////////////////
+
+FILE START
+src/main/java/com/example/monitor/service/ResourceMonitorService.java
+package com.example.monitor.service;
+
+import com.sun.management.OperatingSystemMXBean;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Service;
+
+import java.lang.management.ManagementFactory;
+import java.lang.management.MemoryMXBean;
+import java.lang.management.MemoryUsage;
+
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class ResourceMonitorService {
+
+    private static final double CPU_THRESHOLD = 60.0;
+
+    private static final double MEMORY_THRESHOLD = 80.0;
+
+    // 10 minutes cooldown
+    private static final long COOLDOWN_PERIOD =
+            10 * 60 * 1000;
+
+    private long lastDiagnosticsTime = 0;
+
+    private final DiagnosticsService diagnosticsService;
+
+    private final OperatingSystemMXBean osBean =
+            (OperatingSystemMXBean)
+                    ManagementFactory
+                            .getOperatingSystemMXBean();
+
+    private final MemoryMXBean memoryMXBean =
+            ManagementFactory
+                    .getMemoryMXBean();
+
+    @Scheduled(fixedDelay = 30000)
+    public void monitorResources() {
+
+        try {
+
+            double cpuUsage =
+                    osBean.getProcessCpuLoad() * 100;
+
+            MemoryUsage heapUsage =
+                    memoryMXBean.getHeapMemoryUsage();
+
+            double memoryUsage =
+                    ((double) heapUsage.getUsed()
+                            / heapUsage.getMax()) * 100;
+
+            log.info(
+                    "CPU={}%, MEMORY={}%",
+                    format(cpuUsage),
+                    format(memoryUsage)
+            );
+
+            boolean thresholdCrossed =
+                    cpuUsage > CPU_THRESHOLD
+                            || memoryUsage > MEMORY_THRESHOLD;
+
+            if (!thresholdCrossed) {
+                return;
+            }
+
+            if (isCooldownActive()) {
+
+                log.warn(
+                        "Cooldown active. Skipping diagnostics generation."
+                );
+
+                return;
+            }
+
+            diagnosticsService.generateDiagnostics(
+                    cpuUsage,
+                    memoryUsage
+            );
+
+            lastDiagnosticsTime =
+                    System.currentTimeMillis();
+
+        } catch (Exception e) {
+
+            log.error(
+                    "Monitoring failed",
+                    e
+            );
+        }
+    }
+
+    private boolean isCooldownActive() {
+
+        return (System.currentTimeMillis()
+                - lastDiagnosticsTime)
+                < COOLDOWN_PERIOD;
+    }
+
+    private String format(double value) {
+
+        return String.format("%.2f", value);
+    }
+}
+
+
+
+/////////////////////////////////////////////////////////////////////////////////////
+
+STEP 6
+FILE START
+src/main/java/com/example/monitor/service/DiagnosticsService.java
+package com.example.monitor.service;
+
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+
+import java.io.File;
+import java.io.FileWriter;
+import java.io.InputStream;
+import java.io.PrintWriter;
+import java.lang.management.*;
+import java.net.InetAddress;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.Map;
+import java.util.stream.Collectors;
+
+@Slf4j
+@Service
+public class DiagnosticsService {
+
+    private static final String BASE_PATH =
+            "/tmp/diagnostics";
+
+    private static final String THREAD_DUMP_ENDPOINT =
+            "http://localhost:8080/actuator/threaddump";
+
+    public void generateDiagnostics(
+            double cpuUsage,
+            double memoryUsage)
+            throws Exception {
+
+        File diagnosticsFolder =
+                createDiagnosticsFolder();
+
+        generateSummaryReport(
+                diagnosticsFolder,
+                cpuUsage,
+                memoryUsage
+        );
+
+        generateMetricsJson(
+                diagnosticsFolder,
+                cpuUsage,
+                memoryUsage
+        );
+
+        generateThreadDump(
+                diagnosticsFolder
+        );
+
+        log.info(
+                "Diagnostics generated at : {}",
+                diagnosticsFolder.getAbsolutePath()
+        );
+    }
+
+    // ==================================================
+    // SUMMARY REPORT
+    // ==================================================
+
+    private void generateSummaryReport(
+            File folder,
+            double cpuUsage,
+            double memoryUsage)
+            throws Exception {
+
+        File reportFile =
+                new File(
+                        folder,
+                        "summary-report.txt"
+                );
+
+        StringBuilder sb =
+                new StringBuilder();
+
+        addSection(
+                sb,
+                "APPLICATION DIAGNOSTICS REPORT"
+        );
+
+        sb.append("Generated At     : ")
+                .append(LocalDateTime.now())
+                .append("\n");
+
+        sb.append("Host             : ")
+                .append(InetAddress
+                        .getLocalHost()
+                        .getHostName())
+                .append("\n");
+
+        addSection(
+                sb,
+                "ALERT INFORMATION"
+        );
+
+        sb.append(String.format(
+                "CPU Usage        : %.2f%%\n",
+                cpuUsage
+        ));
+
+        sb.append(String.format(
+                "Memory Usage     : %.2f%%\n",
+                memoryUsage
+        ));
+
+        OperatingSystemMXBean osBean =
+                (OperatingSystemMXBean)
+                        ManagementFactory
+                                .getOperatingSystemMXBean();
+
+        addSection(
+                sb,
+                "SYSTEM INFORMATION"
+        );
+
+        sb.append("Available CPUs   : ")
+                .append(osBean.getAvailableProcessors())
+                .append("\n");
+
+        sb.append("System Load Avg  : ")
+                .append(osBean.getSystemLoadAverage())
+                .append("\n");
+
+        MemoryMXBean memoryMXBean =
+                ManagementFactory.getMemoryMXBean();
+
+        MemoryUsage heapUsage =
+                memoryMXBean.getHeapMemoryUsage();
+
+        addSection(
+                sb,
+                "JVM MEMORY"
+        );
+
+        sb.append(String.format(
+                "Heap Used        : %d MB\n",
+                heapUsage.getUsed() / 1024 / 1024
+        ));
+
+        sb.append(String.format(
+                "Heap Max         : %d MB\n",
+                heapUsage.getMax() / 1024 / 1024
+        ));
+
+        ThreadMXBean threadMXBean =
+                ManagementFactory.getThreadMXBean();
+
+        addSection(
+                sb,
+                "THREAD SUMMARY"
+        );
+
+        sb.append("Total Threads    : ")
+                .append(threadMXBean.getThreadCount())
+                .append("\n");
+
+        sb.append("Peak Threads     : ")
+                .append(threadMXBean.getPeakThreadCount())
+                .append("\n");
+
+        sb.append("Daemon Threads   : ")
+                .append(threadMXBean.getDaemonThreadCount())
+                .append("\n");
+
+        Map<Thread.State, Long> threadStates =
+                Thread.getAllStackTraces()
+                        .keySet()
+                        .stream()
+                        .collect(Collectors.groupingBy(
+                                Thread::getState,
+                                Collectors.counting()
+                        ));
+
+        sb.append("\n");
+
+        for (Map.Entry<Thread.State, Long> entry
+                : threadStates.entrySet()) {
+
+            sb.append(String.format(
+                    "%-18s : %d\n",
+                    entry.getKey(),
+                    entry.getValue()
+            ));
+        }
+
+        try (PrintWriter writer =
+                     new PrintWriter(
+                             new FileWriter(reportFile)
+                     )) {
+
+            writer.write(sb.toString());
+        }
+    }
+
+    // ==================================================
+    // METRICS JSON
+    // ==================================================
+
+    private void generateMetricsJson(
+            File folder,
+            double cpuUsage,
+            double memoryUsage)
+            throws Exception {
+
+        File jsonFile =
+                new File(
+                        folder,
+                        "metrics.json"
+                );
+
+        String json =
+                String.format("""
+                        {
+                          "timestamp": "%s",
+                          "cpuUsage": %.2f,
+                          "memoryUsage": %.2f
+                        }
+                        """,
+                        LocalDateTime.now(),
+                        cpuUsage,
+                        memoryUsage
+                );
+
+        try (PrintWriter writer =
+                     new PrintWriter(
+                             new FileWriter(jsonFile)
+                     )) {
+
+            writer.write(json);
+        }
+    }
+
+    // ==================================================
+    // THREAD DUMP
+    // ==================================================
+
+    private void generateThreadDump(
+            File folder)
+            throws Exception {
+
+        File threadDumpFile =
+                new File(
+                        folder,
+                        "thread-dump.txt"
+                );
+
+        String threadDump =
+                readFromEndpoint(
+                        THREAD_DUMP_ENDPOINT
+                );
+
+        try (PrintWriter writer =
+                     new PrintWriter(
+                             new FileWriter(threadDumpFile)
+                     )) {
+
+            writer.write(threadDump);
+        }
+    }
+
+    // ==================================================
+    // CREATE DIAGNOSTICS FOLDER
+    // ==================================================
+
+    private File createDiagnosticsFolder() {
+
+        String timestamp =
+                LocalDateTime.now()
+                        .format(
+                                DateTimeFormatter.ofPattern(
+                                        "yyyyMMdd-HHmmss"
+                                )
+                        );
+
+        File folder =
+                new File(
+                        BASE_PATH
+                                + "/"
+                                + timestamp
+                );
+
+        if (!folder.exists()) {
+
+            boolean created =
+                    folder.mkdirs();
+
+            if (!created) {
+
+                throw new RuntimeException(
+                        "Unable to create folder : "
+                                + folder.getAbsolutePath()
+                );
+            }
+        }
+
+        return folder;
+    }
+
+    // ==================================================
+    // READ ACTUATOR ENDPOINT
+    // ==================================================
+
+    private String readFromEndpoint(
+            String endpoint)
+            throws Exception {
+
+        URL url =
+                new URL(endpoint);
+
+        try (InputStream inputStream =
+                     url.openStream()) {
+
+            return new String(
+                    inputStream.readAllBytes(),
+                    StandardCharsets.UTF_8
+            );
+        }
+    }
+
+    // ==================================================
+    // HELPER
+    // ==================================================
+
+    private void addSection(
+            StringBuilder sb,
+            String title) {
+
+        sb.append("\n");
+
+        sb.append(
+                "==================================================\n"
+        );
+
+        sb.append(title)
+                .append("\n");
+
+        sb.append(
+                "==================================================\n\n"
+        );
+    }
+}
+
+//////////////////////////////////////////////////////////////////////////
+
+
+
+
