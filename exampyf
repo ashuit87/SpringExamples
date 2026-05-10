@@ -1,49 +1,3 @@
-pom.xml
-
-Add these dependencies inside <dependencies>
-
-<!-- Spring Boot Web -->
-<dependency>
-    <groupId>org.springframework.boot</groupId>
-    <artifactId>spring-boot-starter-web</artifactId>
-</dependency>
-
-<!-- Spring Boot Actuator -->
-<dependency>
-    <groupId>org.springframework.boot</groupId>
-    <artifactId>spring-boot-starter-actuator</artifactId>
-</dependency>
-
-<!-- Lombok -->
-<dependency>
-    <groupId>org.projectlombok</groupId>
-    <artifactId>lombok</artifactId>
-    <optional>true</optional>
-</dependency>
-
-
-////////////////////////////////////////////////////////////
-
-
-STEP 3
-FILE START
-src/main/resources/application.yml
-management:
-  endpoints:
-    web:
-      exposure:
-        include: health,metrics,prometheus,threaddump
-
-logging:
-  level:
-    root: INFO
-
-
-/////////////////////////////////////////////////////////////
-
-STEP 4
-FILE START
-src/main/java/com/example/monitor/DiagnosticsMonitoringApplication.java
 package com.example.monitor;
 
 import org.springframework.boot.SpringApplication;
@@ -64,10 +18,10 @@ public class DiagnosticsMonitoringApplication {
 }
 
 
-//////////////////////////////////////////////////////////////////////////
 
-FILE START
-src/main/java/com/example/monitor/service/ResourceMonitorService.java
+
+///////////////////////////////////////////////////////////////
+
 package com.example.monitor.service;
 
 import com.sun.management.OperatingSystemMXBean;
@@ -79,23 +33,51 @@ import org.springframework.stereotype.Service;
 import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryMXBean;
 import java.lang.management.MemoryUsage;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class ResourceMonitorService {
 
-    private static final double CPU_THRESHOLD = 60.0;
+    // ==================================================
+    // THRESHOLDS
+    // ==================================================
 
-    private static final double MEMORY_THRESHOLD = 80.0;
+    private static final double CPU_THRESHOLD =
+            60.0;
+
+    private static final double MEMORY_THRESHOLD =
+            80.0;
 
     // 10 minutes cooldown
     private static final long COOLDOWN_PERIOD =
             10 * 60 * 1000;
 
+    // ==================================================
+    // COOLDOWN CONTROL
+    // ==================================================
+
     private long lastDiagnosticsTime = 0;
 
-    private final DiagnosticsService diagnosticsService;
+    // ==================================================
+    // ASYNC EXECUTOR
+    // ==================================================
+
+    private final ExecutorService executor =
+            Executors.newSingleThreadExecutor();
+
+    // ==================================================
+    // SERVICES
+    // ==================================================
+
+    private final RuntimeDiagnosticsService
+            diagnosticsService;
+
+    // ==================================================
+    // JVM BEANS
+    // ==================================================
 
     private final OperatingSystemMXBean osBean =
             (OperatingSystemMXBean)
@@ -106,20 +88,20 @@ public class ResourceMonitorService {
             ManagementFactory
                     .getMemoryMXBean();
 
+    // ==================================================
+    // MONITORING SCHEDULER
+    // ==================================================
+
     @Scheduled(fixedDelay = 30000)
     public void monitorResources() {
 
         try {
 
             double cpuUsage =
-                    osBean.getProcessCpuLoad() * 100;
-
-            MemoryUsage heapUsage =
-                    memoryMXBean.getHeapMemoryUsage();
+                    getCpuUsage();
 
             double memoryUsage =
-                    ((double) heapUsage.getUsed()
-                            / heapUsage.getMax()) * 100;
+                    getMemoryUsage();
 
             log.info(
                     "CPU={}%, MEMORY={}%",
@@ -144,13 +126,34 @@ public class ResourceMonitorService {
                 return;
             }
 
-            diagnosticsService.generateDiagnostics(
-                    cpuUsage,
-                    memoryUsage
-            );
-
             lastDiagnosticsTime =
                     System.currentTimeMillis();
+
+            log.error(
+                    "Threshold crossed! Generating diagnostics."
+            );
+
+            // ==================================================
+            // ASYNC DIAGNOSTICS GENERATION
+            // ==================================================
+
+            executor.submit(() -> {
+
+                try {
+
+                    diagnosticsService.generateDiagnostics(
+                            cpuUsage,
+                            memoryUsage
+                    );
+
+                } catch (Exception e) {
+
+                    log.error(
+                            "Diagnostics generation failed",
+                            e
+                    );
+                }
+            });
 
         } catch (Exception e) {
 
@@ -159,6 +162,25 @@ public class ResourceMonitorService {
                     e
             );
         }
+    }
+
+    // ==================================================
+    // HELPER METHODS
+    // ==================================================
+
+    private double getCpuUsage() {
+
+        return osBean.getProcessCpuLoad() * 100;
+    }
+
+    private double getMemoryUsage() {
+
+        MemoryUsage heapUsage =
+                memoryMXBean
+                        .getHeapMemoryUsage();
+
+        return ((double) heapUsage.getUsed()
+                / heapUsage.getMax()) * 100;
     }
 
     private boolean isCooldownActive() {
@@ -174,13 +196,8 @@ public class ResourceMonitorService {
     }
 }
 
+/////////////////////////////////////////////////////////////////
 
-
-/////////////////////////////////////////////////////////////////////////////////////
-
-STEP 6
-FILE START
-src/main/java/com/example/monitor/service/DiagnosticsService.java
 package com.example.monitor.service;
 
 import lombok.extern.slf4j.Slf4j;
@@ -188,12 +205,9 @@ import org.springframework.stereotype.Service;
 
 import java.io.File;
 import java.io.FileWriter;
-import java.io.InputStream;
 import java.io.PrintWriter;
 import java.lang.management.*;
 import java.net.InetAddress;
-import java.net.URL;
-import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Map;
@@ -201,13 +215,18 @@ import java.util.stream.Collectors;
 
 @Slf4j
 @Service
-public class DiagnosticsService {
+public class RuntimeDiagnosticsService {
+
+    // ==================================================
+    // DIAGNOSTICS LOCATION
+    // ==================================================
 
     private static final String BASE_PATH =
-            "/tmp/diagnostics";
+            "/tmp/runtime-diagnostics";
 
-    private static final String THREAD_DUMP_ENDPOINT =
-            "http://localhost:8080/actuator/threaddump";
+    // ==================================================
+    // MAIN METHOD
+    // ==================================================
 
     public void generateDiagnostics(
             double cpuUsage,
@@ -273,6 +292,10 @@ public class DiagnosticsService {
                         .getHostName())
                 .append("\n");
 
+        // ==================================================
+        // ALERT INFORMATION
+        // ==================================================
+
         addSection(
                 sb,
                 "ALERT INFORMATION"
@@ -287,6 +310,10 @@ public class DiagnosticsService {
                 "Memory Usage     : %.2f%%\n",
                 memoryUsage
         ));
+
+        // ==================================================
+        // SYSTEM INFORMATION
+        // ==================================================
 
         OperatingSystemMXBean osBean =
                 (OperatingSystemMXBean)
@@ -306,11 +333,17 @@ public class DiagnosticsService {
                 .append(osBean.getSystemLoadAverage())
                 .append("\n");
 
+        // ==================================================
+        // JVM MEMORY
+        // ==================================================
+
         MemoryMXBean memoryMXBean =
-                ManagementFactory.getMemoryMXBean();
+                ManagementFactory
+                        .getMemoryMXBean();
 
         MemoryUsage heapUsage =
-                memoryMXBean.getHeapMemoryUsage();
+                memoryMXBean
+                        .getHeapMemoryUsage();
 
         addSection(
                 sb,
@@ -327,8 +360,18 @@ public class DiagnosticsService {
                 heapUsage.getMax() / 1024 / 1024
         ));
 
+        sb.append(String.format(
+                "Heap Usage       : %.2f%%\n",
+                memoryUsage
+        ));
+
+        // ==================================================
+        // THREAD SUMMARY
+        // ==================================================
+
         ThreadMXBean threadMXBean =
-                ManagementFactory.getThreadMXBean();
+                ManagementFactory
+                        .getThreadMXBean();
 
         addSection(
                 sb,
@@ -423,23 +466,34 @@ public class DiagnosticsService {
             File folder)
             throws Exception {
 
-        File threadDumpFile =
+        File dumpFile =
                 new File(
                         folder,
                         "thread-dump.txt"
                 );
 
-        String threadDump =
-                readFromEndpoint(
-                        THREAD_DUMP_ENDPOINT
+        ThreadMXBean threadMXBean =
+                ManagementFactory
+                        .getThreadMXBean();
+
+        ThreadInfo[] threadInfos =
+                threadMXBean.dumpAllThreads(
+                        true,
+                        true
                 );
 
         try (PrintWriter writer =
                      new PrintWriter(
-                             new FileWriter(threadDumpFile)
+                             new FileWriter(dumpFile)
                      )) {
 
-            writer.write(threadDump);
+            for (ThreadInfo threadInfo
+                    : threadInfos) {
+
+                writer.println(
+                        threadInfo.toString()
+                );
+            }
         }
     }
 
@@ -482,27 +536,6 @@ public class DiagnosticsService {
     }
 
     // ==================================================
-    // READ ACTUATOR ENDPOINT
-    // ==================================================
-
-    private String readFromEndpoint(
-            String endpoint)
-            throws Exception {
-
-        URL url =
-                new URL(endpoint);
-
-        try (InputStream inputStream =
-                     url.openStream()) {
-
-            return new String(
-                    inputStream.readAllBytes(),
-                    StandardCharsets.UTF_8
-            );
-        }
-    }
-
-    // ==================================================
     // HELPER
     // ==================================================
 
@@ -525,8 +558,48 @@ public class DiagnosticsService {
     }
 }
 
-//////////////////////////////////////////////////////////////////////////
+
+////////////////////////////////////////////////////////////////////////////
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics,prometheus
+
+logging:
+  level:
+    root: INFO
 
 
+///////////////////////////////////////////////////////////////////////////////
+
+<!-- Spring Boot Web -->
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-web</artifactId>
+</dependency>
+
+<!-- Spring Boot Actuator -->
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-actuator</artifactId>
+</dependency>
+
+<!-- Prometheus -->
+<dependency>
+    <groupId>io.micrometer</groupId>
+    <artifactId>micrometer-registry-prometheus</artifactId>
+</dependency>
+
+<!-- Lombok -->
+<dependency>
+    <groupId>org.projectlombok</groupId>
+    <artifactId>lombok</artifactId>
+    <optional>true</optional>
+</dependency>
+
+
+/////////////////////////////////////////////////////////////////////////////////
 
 
